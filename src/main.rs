@@ -1,7 +1,18 @@
-use libc::{close, ioctl, open, read, write, O_RDWR};
+use libc::*;
 use std::io;
 
 const TUNSETIFF: u64 = 0x400454CA;
+
+#[repr(C)]
+union IfrIfru {
+    ifru_flags: c_short,
+}
+
+#[repr(C)]
+pub struct ifreq {
+    ifr_name: [c_uchar; IFNAMSIZ],
+    ifr_ifru: IfrIfru,
+}
 
 fn main() -> std::io::Result<()> {
     println!("main: TUNSETIFF: {}", TUNSETIFF);
@@ -17,7 +28,17 @@ fn main() -> std::io::Result<()> {
     let ifs = b"tun0\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x10\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00";
     println!("ifs = {:?}", &ifs);
 
-    if unsafe { ioctl(fd, TUNSETIFF as _, &ifs) } < 0 {
+    let iface_name = "tun0".as_bytes();
+    let mut ifr = ifreq {
+        ifr_name: [0; IFNAMSIZ],
+        ifr_ifru: IfrIfru {
+            ifru_flags: (IFF_TUN | IFF_NO_PI) as _,
+        },
+    };
+
+    ifr.ifr_name[..iface_name.len()].copy_from_slice(iface_name);
+
+    if unsafe { ioctl(fd, TUNSETIFF as _, &ifr) } < 0 {
         unsafe { close(fd) };
         return Err(io::Error::last_os_error());
     }
