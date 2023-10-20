@@ -25,8 +25,8 @@ fn main() -> std::io::Result<()> {
 
     // ifs here taken from printing the `ifs` value in
     // https://jvns.ca/blog/2022/09/06/send-network-packets-python-tun-tap/
-    let ifs = b"tun0\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x10\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00";
-    println!("ifs = {:?}", &ifs);
+    let ifs = b"tun0\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x10";
+    println!("main: ifs = {:?}", &ifs);
 
     let iface_name = "tun0".as_bytes();
     let mut ifr = ifreq {
@@ -37,6 +37,13 @@ fn main() -> std::io::Result<()> {
     };
 
     ifr.ifr_name[..iface_name.len()].copy_from_slice(iface_name);
+
+    unsafe fn any_as_u8_slice<T: Sized>(p: &T) -> &[u8] {
+        ::core::slice::from_raw_parts((p as *const T) as *const u8, ::core::mem::size_of::<T>())
+    }
+    let bytes: &[u8] = unsafe { any_as_u8_slice(&ifr) };
+
+    println!("main: ifr = {:?}", bytes);
 
     if unsafe { ioctl(fd, TUNSETIFF as _, &ifr) } < 0 {
         unsafe { close(fd) };
