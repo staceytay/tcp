@@ -11,12 +11,28 @@ use std::{
     os::unix::io::RawFd,
 };
 
+const IPV4_SOURCE: Ipv4Addr = Ipv4Addr::new(192, 0, 2, 2);
+
+#[derive(Debug)]
+struct ReceiveSequence {
+    next: u32,
+    window: u16,
+    // irs: u32,
+}
+
+#[derive(Debug)]
+struct SendSequence {
+    unacknowledged: u32,
+    next: u32,
+    window: u16,
+    // iss: u32,
+}
+
 pub struct Closed;
 pub struct Established {
-    acknowledgement: u32,
-    sequence: u32,
+    receive: ReceiveSequence,
+    send: SendSequence,
     source: u16,
-    window: u16,
 }
 
 pub struct TcpStream<State = Closed> {
@@ -32,15 +48,13 @@ impl<T> TcpStream<T> {
     }
 }
 
-// impl Default for TcpStream<Closed> {}
 impl TcpStream<Closed> {
     pub fn connect<T: ToSocketAddrs>(addr: T) -> io::Result<TcpStream<Established>> {
         let socket_addr = addr.to_socket_addrs().unwrap().collect::<Vec<_>>()[0];
 
         match socket_addr {
-            SocketAddrV4 @ socket_addr_v4 => {
+            SocketAddrV4 => {
                 let tun = TunSocket::new("tun0")?;
-                println!("TUN: {:?}", tun);
 
                 let tcp_stream = TcpStream {
                     socket_addr,
@@ -62,18 +76,18 @@ impl TcpStream<Closed> {
 
         let mut packet = [0u8; IPV4_HEADER_LEN + TCP_HEADER_LEN];
 
-        let ipv4_source = Ipv4Addr::new(192, 0, 2, 2);
         // let ipv4_destination = self.socket_addr.ip();
         let ipv4_destination = Ipv4Addr::new(93, 184, 216, 34);
-        // let ipv4_destination = Ipv4Addr::new(192, 0, 2, 1);
+        let initial_seq = 30; // TODO: Randomize sequence number generation
 
+        // TODO: Use builder pattern to reduce duplication of set methods
         let mut tcp_header = MutableTcpPacket::new(&mut packet[IPV4_HEADER_LEN..]).unwrap();
         // TODO: use a random source port?
         tcp_header.set_source(12345);
         tcp_header.set_destination(80);
         // TODO: What is sequence?
-        tcp_header.set_sequence(0x0);
-        tcp_header.set_acknowledgement(0x0);
+        tcp_header.set_sequence(initial_seq);
+        tcp_header.set_acknowledgement(0);
         tcp_header.set_flags(TcpFlags::SYN);
         tcp_header.set_window(65535);
         tcp_header.set_data_offset((TCP_HEADER_LEN / 4) as u8);
@@ -81,14 +95,16 @@ impl TcpStream<Closed> {
         // let ts = TcpOption::timestamp(743951781, 44056978);
         tcp_header.set_options(&vec![TcpOption::mss(1460)]);
 
+        println!("SYN TCP HEADER: {:?}", tcp_header);
+
         let checksum_val =
-            ipv4_checksum(&tcp_header.to_immutable(), &ipv4_source, &ipv4_destination);
-        println!("checksum: {}", checksum_val);
+            ipv4_checksum(&tcp_header.to_immutable(), &IPV4_SOURCE, &ipv4_destination);
+        // println!("checksum: {}", checksum_val);
         tcp_header.set_checksum(checksum_val);
 
         let mut ip_header = MutableIpv4Packet::new(&mut packet[..]).unwrap();
         ip_header.set_next_level_protocol(IpNextHeaderProtocols::Tcp);
-        ip_header.set_source(ipv4_source);
+        ip_header.set_source(IPV4_SOURCE);
         ip_header.set_destination(ipv4_destination);
         ip_header.set_identification(1);
         ip_header.set_header_length(5);
@@ -98,49 +114,69 @@ impl TcpStream<Closed> {
 
         ip_header.set_checksum(checksum(&ip_header.to_immutable()));
 
-        println!("IP PACKET: {:?}", Ipv4Packet::new(&packet));
+        // println!("IP PACKET: {:?}", Ipv4Packet::new(&packet));
         // let syn = b"E\x00\x00,\x00\x01\x00\x00@\x06\xf6\xc7\xc0\x00\x02\x02\xc0\x00\x02\x0109\x1f\x90\x00\x00\x00\x00\x00\x00\x00\x00`\x02\xff\xff\xc4Y\x00\x00\x02\x04\x05\xb4";
         // println!("LENGTHS: Packet = {}, SYN = {}", packet.len(), syn.len());
         // assert_eq!(&packet[..ipv4_header_len], &syn[..ipv4_header_len]);
         // assert_eq!(&packet[ipv4_header_len..], &syn[ipv4_header_len..]);
         let size = self.tun.write(&packet).unwrap();
 
-        println!("Size: {size}");
+        println!("");
+        // Technically we're in the SYN-SENT state here.
+
+        // println!("Size: {size}");
 
         let mut buf = [0; 1024];
 
         let packet = self.tun.read(&mut buf).unwrap();
-        println!("packet: {:?}", packet);
+        // println!("packet: {:?}", packet);
         let response = Ipv4Packet::new(&packet).unwrap();
-        println!("IP RESPONSE: {:?}", response);
+        // println!("IP RESPONSE: {:?}", response);
         let tcp_response = TcpPacket::new(response.payload()).unwrap();
-        println!("TCP RESPONSE: {:?}", tcp_response);
+        println!("SYN ACK TCP RESPONSE: {:?}", tcp_response);
 
         // TODO: Check if response packet is a SYN ACK.
         // Send ACK back to server.
 
-        let acknowledgement = tcp_response.get_sequence() + 1;
-        let sequence = tcp_response.get_acknowledgement();
+        let mut send = SendSequence {
+            unacknowledged: 0,
+            next: initial_seq + 1,
+            window: 65535,
+        };
+
+        let receive = ReceiveSequence {
+            next: tcp_response.get_sequence() + 1,
+            window: tcp_response.get_window(),
+        };
+
+        // println!("SEND: {:?}", send);
+        // println!("RECEIVE: {:?}", receive);
+
+        // let acknowledgement = tcp_response.get_sequence() + 1;
+        // let sequence = tcp_response.get_acknowledgement();
         let mut packet = [0u8; IPV4_HEADER_LEN + TCP_HEADER_LEN];
         let mut tcp_header = MutableTcpPacket::new(&mut packet[IPV4_HEADER_LEN..]).unwrap();
         tcp_header.set_source(12345);
         tcp_header.set_destination(80);
         // TODO: What is sequence?
-        tcp_header.set_sequence(sequence);
-        tcp_header.set_acknowledgement(acknowledgement);
+        tcp_header.set_sequence(send.next);
+        send.next = send.next + 1;
+        tcp_header.set_acknowledgement(receive.next);
         tcp_header.set_flags(TcpFlags::ACK);
         tcp_header.set_window(65535);
         tcp_header.set_data_offset((TCP_HEADER_LEN / 4) as u8);
 
         tcp_header.set_options(&vec![TcpOption::mss(1460)]);
 
+        println!("ACK TCP ACK REPLY FROM US: {:?}", tcp_header);
+
         let checksum_val =
-            ipv4_checksum(&tcp_header.to_immutable(), &ipv4_source, &ipv4_destination);
+            ipv4_checksum(&tcp_header.to_immutable(), &IPV4_SOURCE, &ipv4_destination);
         tcp_header.set_checksum(checksum_val);
 
         let mut ip_header = MutableIpv4Packet::new(&mut packet[..]).unwrap();
         ip_header.set_next_level_protocol(IpNextHeaderProtocols::Tcp);
-        ip_header.set_source(ipv4_source);
+        ip_header.set_source(IPV4_SOURCE);
         ip_header.set_destination(ipv4_destination);
         ip_header.set_identification(1);
         ip_header.set_header_length(5);
@@ -156,10 +192,9 @@ impl TcpStream<Closed> {
         Ok(TcpStream {
             socket_addr: self.socket_addr,
             state: Established {
-                acknowledgement,
-                sequence,
+                receive,
+                send,
                 source: 12345,
-                window: 65535,
             },
             tun: self.tun.clone(),
         })
@@ -168,16 +203,19 @@ impl TcpStream<Closed> {
 
 impl io::Read for TcpStream<Established> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        println!("TcpStream: read: start");
         Ok(42)
     }
 }
 
 impl io::Write for TcpStream<Established> {
     fn flush(&mut self) -> io::Result<()> {
+        println!("TcpStream: flush: start");
         Ok(())
     }
 
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        println!("TcpStream: write: start");
         Ok(42)
     }
 }
