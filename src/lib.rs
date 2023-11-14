@@ -65,6 +65,8 @@ impl TcpStream<Closed> {
                 .open_tcp_connection()
                 .unwrap();
 
+                tcp_stream.reset();
+
                 Ok(tcp_stream)
             }
             _ => panic!("TcpStream::connect: Ipv6 unsupported"),
@@ -199,6 +201,51 @@ impl TcpStream<Closed> {
             },
             tun: Rc::clone(&self.tun),
         })
+    }
+}
+
+impl TcpStream<Established> {
+    fn reset(&mut self) -> Result<(), &'static str> {
+        const IPV4_HEADER_LEN: usize = 20;
+        const TCP_HEADER_LEN: usize = 24;
+
+        let mut packet = [0u8; IPV4_HEADER_LEN + TCP_HEADER_LEN];
+
+        let ipv4_destination = Ipv4Addr::new(93, 184, 216, 34);
+
+        let mut tcp_header = MutableTcpPacket::new(&mut packet[IPV4_HEADER_LEN..]).unwrap();
+        tcp_header.set_source(12345);
+        tcp_header.set_destination(80);
+        tcp_header.set_sequence(self.state.send.next);
+        self.state.send.next = self.state.send.next + 1;
+        tcp_header.set_acknowledgement(self.state.receive.next);
+        tcp_header.set_flags(TcpFlags::RST);
+        tcp_header.set_window(65535);
+        tcp_header.set_data_offset((TCP_HEADER_LEN / 4) as u8);
+
+        tcp_header.set_options(&vec![TcpOption::mss(1460)]);
+
+        let checksum_val =
+            ipv4_checksum(&tcp_header.to_immutable(), &IPV4_SOURCE, &ipv4_destination);
+        tcp_header.set_checksum(checksum_val);
+
+        let mut ip_header = MutableIpv4Packet::new(&mut packet[..]).unwrap();
+        ip_header.set_next_level_protocol(IpNextHeaderProtocols::Tcp);
+        ip_header.set_source(IPV4_SOURCE);
+        ip_header.set_destination(ipv4_destination);
+        ip_header.set_identification(1);
+        ip_header.set_header_length(5);
+        ip_header.set_version(4);
+        ip_header.set_ttl(64);
+        ip_header.set_total_length((IPV4_HEADER_LEN + TCP_HEADER_LEN) as u16);
+
+        ip_header.set_checksum(checksum(&ip_header.to_immutable()));
+
+        println!("reset: TunSocket = {:?}", self.tun);
+
+        let size = self.tun.write(&packet).unwrap();
+
+        Ok(())
     }
 }
 
