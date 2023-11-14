@@ -9,6 +9,7 @@ use std::{
     io,
     net::{Ipv4Addr, SocketAddr, ToSocketAddrs},
     os::unix::io::RawFd,
+    rc::Rc,
 };
 
 const IPV4_SOURCE: Ipv4Addr = Ipv4Addr::new(192, 0, 2, 2);
@@ -39,7 +40,7 @@ pub struct TcpStream<State = Closed> {
     socket_addr: SocketAddr,
     // state: std::marker::PhantomData<State>,
     state: State,
-    tun: TunSocket,
+    tun: Rc<TunSocket>,
 }
 
 impl<T> TcpStream<T> {
@@ -54,9 +55,9 @@ impl TcpStream<Closed> {
 
         match socket_addr {
             SocketAddrV4 => {
-                let tun = TunSocket::new("tun0")?;
+                let tun = Rc::new(TunSocket::new("tun0")?);
 
-                let tcp_stream = TcpStream {
+                let mut tcp_stream = TcpStream {
                     socket_addr,
                     state: Closed,
                     tun,
@@ -196,7 +197,7 @@ impl TcpStream<Closed> {
                 send,
                 source: 12345,
             },
-            tun: self.tun.clone(),
+            tun: Rc::clone(&self.tun),
         })
     }
 }
