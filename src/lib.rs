@@ -79,8 +79,7 @@ impl TcpStream<Closed> {
 
         let mut packet = [0u8; IPV4_HEADER_LEN + TCP_HEADER_LEN];
 
-        // let ipv4_destination = self.socket_addr.ip();
-        let ipv4_destination = Ipv4Addr::new(93, 184, 216, 34);
+        let ipv4_destination = self.socket_addr_v4.ip();
         let initial_seq = 30; // TODO: Randomize sequence number generation
 
         // TODO: Use builder pattern to reduce duplication of set methods
@@ -101,14 +100,14 @@ impl TcpStream<Closed> {
         println!("SYN TCP HEADER: {:?}", tcp_header);
 
         let checksum_val =
-            ipv4_checksum(&tcp_header.to_immutable(), &IPV4_SOURCE, &ipv4_destination);
         // println!("checksum: {}", checksum_val);
+            ipv4_checksum(&tcp_header.to_immutable(), &IPV4_SOURCE, ipv4_destination);
         tcp_header.set_checksum(checksum_val);
 
         let mut ip_header = MutableIpv4Packet::new(&mut packet[..]).unwrap();
         ip_header.set_next_level_protocol(IpNextHeaderProtocols::Tcp);
         ip_header.set_source(IPV4_SOURCE);
-        ip_header.set_destination(ipv4_destination);
+        ip_header.set_destination(*ipv4_destination);
         ip_header.set_identification(1);
         ip_header.set_header_length(5);
         ip_header.set_version(4);
@@ -180,7 +179,7 @@ impl TcpStream<Closed> {
         let mut ip_header = MutableIpv4Packet::new(&mut packet[..]).unwrap();
         ip_header.set_next_level_protocol(IpNextHeaderProtocols::Tcp);
         ip_header.set_source(IPV4_SOURCE);
-        ip_header.set_destination(ipv4_destination);
+        ip_header.set_destination(*ipv4_destination);
         ip_header.set_identification(1);
         ip_header.set_header_length(5);
         ip_header.set_version(4);
@@ -211,7 +210,7 @@ impl TcpStream<Established> {
 
         let mut packet = [0u8; IPV4_HEADER_LEN + TCP_HEADER_LEN];
 
-        let ipv4_destination = Ipv4Addr::new(93, 184, 216, 34);
+        let ipv4_destination = self.socket_addr_v4.ip();
 
         let mut tcp_header = MutableTcpPacket::new(&mut packet[IPV4_HEADER_LEN..]).unwrap();
         tcp_header.set_source(12345);
@@ -226,13 +225,13 @@ impl TcpStream<Established> {
         tcp_header.set_options(&vec![TcpOption::mss(1460)]);
 
         let checksum_val =
-            ipv4_checksum(&tcp_header.to_immutable(), &IPV4_SOURCE, &ipv4_destination);
+            ipv4_checksum(&tcp_header.to_immutable(), &IPV4_SOURCE, ipv4_destination);
         tcp_header.set_checksum(checksum_val);
 
         let mut ip_header = MutableIpv4Packet::new(&mut packet[..]).unwrap();
         ip_header.set_next_level_protocol(IpNextHeaderProtocols::Tcp);
         ip_header.set_source(IPV4_SOURCE);
-        ip_header.set_destination(ipv4_destination);
+        ip_header.set_destination(*ipv4_destination);
         ip_header.set_identification(1);
         ip_header.set_header_length(5);
         ip_header.set_version(4);
