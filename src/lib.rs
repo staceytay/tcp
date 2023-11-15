@@ -7,7 +7,7 @@ use pnet::packet::tcp::{ipv4_checksum, MutableTcpPacket, TcpFlags, TcpOption, Tc
 use pnet::packet::Packet;
 use std::{
     io,
-    net::{Ipv4Addr, SocketAddr, ToSocketAddrs},
+    net::{Ipv4Addr, SocketAddr, SocketAddrV4, ToSocketAddrs},
     os::unix::io::RawFd,
     rc::Rc,
 };
@@ -37,15 +37,15 @@ pub struct Established {
 }
 
 pub struct TcpStream<State = Closed> {
-    socket_addr: SocketAddr,
+    socket_addr_v4: SocketAddrV4,
     // state: std::marker::PhantomData<State>,
     state: State,
     tun: Rc<TunSocket>,
 }
 
 impl<T> TcpStream<T> {
-    pub fn peer_addr(&self) -> io::Result<SocketAddr> {
-        Ok(self.socket_addr)
+    pub fn peer_addr(&self) -> io::Result<SocketAddrV4> {
+        Ok(self.socket_addr_v4)
     }
 }
 
@@ -54,11 +54,11 @@ impl TcpStream<Closed> {
         let socket_addr = addr.to_socket_addrs().unwrap().collect::<Vec<_>>()[0];
 
         match socket_addr {
-            SocketAddrV4 => {
+            SocketAddr::V4(socket_addr_v4) => {
                 let tun = Rc::new(TunSocket::new("tun0")?);
 
                 let mut tcp_stream = TcpStream {
-                    socket_addr,
+                    socket_addr_v4,
                     state: Closed,
                     tun,
                 }
@@ -193,7 +193,7 @@ impl TcpStream<Closed> {
         println!("Size: {size}");
 
         Ok(TcpStream {
-            socket_addr: self.socket_addr,
+            socket_addr_v4: self.socket_addr_v4,
             state: Established {
                 receive,
                 send,
