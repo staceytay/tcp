@@ -13,6 +13,7 @@ use std::{
 };
 
 const IPV4_SOURCE: Ipv4Addr = Ipv4Addr::new(192, 0, 2, 2);
+const MTU: usize = 1500;
 
 #[derive(Debug)]
 struct ReceiveSequence {
@@ -75,9 +76,9 @@ impl TcpStream<Closed> {
 
     fn open_tcp_connection(&self) -> Result<TcpStream<Established>, &'static str> {
         const IPV4_HEADER_LEN: usize = 20;
-        const TCP_HEADER_LEN: usize = 24;
+        const TCP_SYN_HEADER_LEN: usize = 24;
 
-        let mut packet = [0u8; IPV4_HEADER_LEN + TCP_HEADER_LEN];
+        let mut packet = [0u8; IPV4_HEADER_LEN + TCP_SYN_HEADER_LEN];
 
         let ipv4_destination = self.socket_addr_v4.ip();
         let initial_seq = 30; // TODO: Randomize sequence number generation
@@ -92,15 +93,13 @@ impl TcpStream<Closed> {
         tcp_header.set_acknowledgement(0);
         tcp_header.set_flags(TcpFlags::SYN);
         tcp_header.set_window(65535);
-        tcp_header.set_data_offset((TCP_HEADER_LEN / 4) as u8);
+        tcp_header.set_data_offset((TCP_SYN_HEADER_LEN / 4) as u8);
 
-        // let ts = TcpOption::timestamp(743951781, 44056978);
         tcp_header.set_options(&vec![TcpOption::mss(1460)]);
 
         println!("SYN TCP HEADER: {:?}", tcp_header);
 
         let checksum_val =
-        // println!("checksum: {}", checksum_val);
             ipv4_checksum(&tcp_header.to_immutable(), &IPV4_SOURCE, ipv4_destination);
         tcp_header.set_checksum(checksum_val);
 
@@ -112,25 +111,19 @@ impl TcpStream<Closed> {
         ip_header.set_header_length(5);
         ip_header.set_version(4);
         ip_header.set_ttl(64);
-        ip_header.set_total_length((IPV4_HEADER_LEN + TCP_HEADER_LEN) as u16);
+        ip_header.set_total_length((IPV4_HEADER_LEN + TCP_SYN_HEADER_LEN) as u16);
 
         ip_header.set_checksum(checksum(&ip_header.to_immutable()));
 
-        // println!("IP PACKET: {:?}", Ipv4Packet::new(&packet));
-        // let syn = b"E\x00\x00,\x00\x01\x00\x00@\x06\xf6\xc7\xc0\x00\x02\x02\xc0\x00\x02\x0109\x1f\x90\x00\x00\x00\x00\x00\x00\x00\x00`\x02\xff\xff\xc4Y\x00\x00\x02\x04\x05\xb4";
-        // println!("LENGTHS: Packet = {}, SYN = {}", packet.len(), syn.len());
-        // assert_eq!(&packet[..ipv4_header_len], &syn[..ipv4_header_len]);
-        // assert_eq!(&packet[ipv4_header_len..], &syn[ipv4_header_len..]);
         let size = self.tun.write(&packet).unwrap();
 
         println!("");
         // Technically we're in the SYN-SENT state here.
 
-        // println!("Size: {size}");
-
-        let mut buf = [0; 1024];
+        let mut buf = [0; MTU];
 
         let packet = self.tun.read(&mut buf).unwrap();
+        println!("response: packet len = {}", packet.len(),);
         // println!("packet: {:?}", packet);
         let response = Ipv4Packet::new(&packet).unwrap();
         // println!("IP RESPONSE: {:?}", response);
@@ -151,12 +144,8 @@ impl TcpStream<Closed> {
             window: tcp_response.get_window(),
         };
 
-        // println!("SEND: {:?}", send);
-        // println!("RECEIVE: {:?}", receive);
-
-        // let acknowledgement = tcp_response.get_sequence() + 1;
-        // let sequence = tcp_response.get_acknowledgement();
-        let mut packet = [0u8; IPV4_HEADER_LEN + TCP_HEADER_LEN];
+        const TCP_HEADER_LEN: usize = 20;
+        let mut packet = [0u8; 1500];
         let mut tcp_header = MutableTcpPacket::new(&mut packet[IPV4_HEADER_LEN..]).unwrap();
         tcp_header.set_source(12345);
         tcp_header.set_destination(80);
@@ -167,8 +156,6 @@ impl TcpStream<Closed> {
         tcp_header.set_flags(TcpFlags::ACK);
         tcp_header.set_window(65535);
         tcp_header.set_data_offset((TCP_HEADER_LEN / 4) as u8);
-
-        tcp_header.set_options(&vec![TcpOption::mss(1460)]);
 
         println!("ACK TCP ACK REPLY FROM US: {:?}", tcp_header);
 
@@ -206,7 +193,7 @@ impl TcpStream<Closed> {
 impl TcpStream<Established> {
     fn reset(&mut self) -> Result<(), &'static str> {
         const IPV4_HEADER_LEN: usize = 20;
-        const TCP_HEADER_LEN: usize = 24;
+        const TCP_HEADER_LEN: usize = 20;
 
         let mut packet = [0u8; IPV4_HEADER_LEN + TCP_HEADER_LEN];
 
@@ -221,8 +208,6 @@ impl TcpStream<Established> {
         tcp_header.set_flags(TcpFlags::RST);
         tcp_header.set_window(65535);
         tcp_header.set_data_offset((TCP_HEADER_LEN / 4) as u8);
-
-        tcp_header.set_options(&vec![TcpOption::mss(1460)]);
 
         let checksum_val =
             ipv4_checksum(&tcp_header.to_immutable(), &IPV4_SOURCE, ipv4_destination);
