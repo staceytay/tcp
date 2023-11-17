@@ -263,7 +263,7 @@ impl io::Write for TcpStream<Established> {
 
             let mut tcp_header =
                 MutableTcpPacket::new(&mut packet[IPV4_HEADER_LEN..packet_length]).unwrap();
-            tcp_header.set_source(54321);
+            tcp_header.set_source(12345);
             tcp_header.set_destination(80);
             tcp_header.set_sequence(self.state.send.next);
             self.state.send.next = self.state.send.next + segment.len() as u32;
