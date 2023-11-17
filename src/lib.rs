@@ -149,9 +149,7 @@ impl TcpStream<Closed> {
         let mut tcp_header = MutableTcpPacket::new(&mut packet[IPV4_HEADER_LEN..]).unwrap();
         tcp_header.set_source(12345);
         tcp_header.set_destination(80);
-        // TODO: What is sequence?
         tcp_header.set_sequence(send.next);
-        send.next = send.next + 1;
         tcp_header.set_acknowledgement(receive.next);
         tcp_header.set_flags(TcpFlags::ACK);
         tcp_header.set_window(65535);
