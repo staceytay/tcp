@@ -145,7 +145,7 @@ impl TcpStream<Closed> {
         };
 
         const TCP_HEADER_LEN: usize = 20;
-        let mut packet = [0u8; 1500];
+        let mut packet = [0u8; IPV4_HEADER_LEN + TCP_HEADER_LEN];
         let mut tcp_header = MutableTcpPacket::new(&mut packet[IPV4_HEADER_LEN..]).unwrap();
         tcp_header.set_source(12345);
         tcp_header.set_destination(80);
