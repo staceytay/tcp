@@ -128,7 +128,7 @@ impl TcpStream<Closed> {
         let tcp_response = TcpPacket::new(response.payload()).unwrap();
         println!("SYN ACK TCP RESPONSE: {:?}", tcp_response);
 
-        // TODO: Check if response packet is a SYN ACK.
+        // TODO: Verify checksum and check if response packet is a SYN ACK.
         // Send ACK back to server.
 
         let mut send = SendSequence {
@@ -241,6 +241,8 @@ impl io::Read for TcpStream<Established> {
             let packet = self.tun.read(&mut read_buf).unwrap();
             let response = Ipv4Packet::new(&packet).unwrap();
             let tcp_response = TcpPacket::new(response.payload()).unwrap();
+
+            // TODO: Verify checksum of packets above ^
 
             if tcp_response.get_flags() & TcpFlags::FIN == TcpFlags::FIN {
                 self.reset();
