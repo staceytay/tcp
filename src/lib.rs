@@ -246,6 +246,53 @@ impl io::Write for TcpStream<Established> {
 
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         println!("TcpStream: write: start");
+
+        const IPV4_HEADER_LEN: usize = 20;
+        const TCP_HEADER_LEN: usize = 20;
+        for segment in buf.chunks(MTU - TCP_HEADER_LEN - IPV4_HEADER_LEN) {
+            println!("TcpStream: write: segment length = {}", segment.len());
+            println!(
+                "TcpStream: write: segment contents = {}",
+                std::str::from_utf8(segment).unwrap()
+            );
+
+            let mut packet = [0u8; MTU];
+            let packet_length = IPV4_HEADER_LEN + TCP_HEADER_LEN + segment.len();
+
+            let ipv4_destination = self.socket_addr_v4.ip();
+
+            let mut tcp_header =
+                MutableTcpPacket::new(&mut packet[IPV4_HEADER_LEN..packet_length]).unwrap();
+            tcp_header.set_source(54321);
+            tcp_header.set_destination(80);
+            tcp_header.set_sequence(self.state.send.next);
+            self.state.send.next = self.state.send.next + segment.len() as u32;
+            tcp_header.set_acknowledgement(self.state.receive.next);
+            tcp_header.set_flags(TcpFlags::PSH | TcpFlags::ACK);
+            tcp_header.set_window(65535);
+            tcp_header.set_data_offset((TCP_HEADER_LEN / 4) as u8);
+
+            tcp_header.set_payload(segment);
+
+            let checksum_val =
+                ipv4_checksum(&tcp_header.to_immutable(), &IPV4_SOURCE, ipv4_destination);
+            tcp_header.set_checksum(checksum_val);
+
+            let mut ip_header = MutableIpv4Packet::new(&mut packet[..]).unwrap();
+            ip_header.set_next_level_protocol(IpNextHeaderProtocols::Tcp);
+            ip_header.set_source(IPV4_SOURCE);
+            ip_header.set_destination(*ipv4_destination);
+            ip_header.set_identification(1);
+            ip_header.set_header_length(5);
+            ip_header.set_version(4);
+            ip_header.set_ttl(64);
+            ip_header.set_total_length(packet_length as u16);
+
+            ip_header.set_checksum(checksum(&ip_header.to_immutable()));
+
+            let size = self.tun.write(&packet[..packet_length]).unwrap();
+        }
+
         Ok(42)
     }
 }
