@@ -66,8 +66,6 @@ impl TcpStream<Closed> {
                 .open_tcp_connection()
                 .unwrap();
 
-                tcp_stream.reset();
-
                 Ok(tcp_stream)
             }
             _ => panic!("TcpStream::connect: Ipv6 unsupported"),
@@ -123,7 +121,7 @@ impl TcpStream<Closed> {
         let mut buf = [0; MTU];
 
         let packet = self.tun.read(&mut buf).unwrap();
-        println!("response: packet len = {}", packet.len(),);
+        println!("response: packet len = {}", packet.len());
         // println!("packet: {:?}", packet);
         let response = Ipv4Packet::new(&packet).unwrap();
         // println!("IP RESPONSE: {:?}", response);
@@ -234,6 +232,72 @@ impl TcpStream<Established> {
 impl io::Read for TcpStream<Established> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         println!("TcpStream: read: start");
+
+        // TODO: check and break once tcp_data_read >= buf.len()
+        let mut tcp_data_read = 0;
+
+        loop {
+            let mut read_buf = [0u8; MTU];
+            let packet = self.tun.read(&mut read_buf).unwrap();
+            let response = Ipv4Packet::new(&packet).unwrap();
+            let tcp_response = TcpPacket::new(response.payload()).unwrap();
+
+            if tcp_response.get_flags() & TcpFlags::FIN == TcpFlags::FIN {
+                self.reset();
+                break;
+            }
+
+            // TODO: Check that received packet is within receive window
+            let tcp_data = tcp_response.payload();
+            if tcp_data.len() > 0 {
+                println!("tcp_data_read = {}", tcp_data_read);
+                println!(
+                    "TCP DATA RECEIVED: LEN = {}, {}...",
+                    tcp_data.len(),
+                    &(std::str::from_utf8(tcp_data).unwrap())[..24]
+                );
+                // TODO: check that end is still within buf.len()
+                buf[tcp_data_read..tcp_data_read + tcp_data.len()].clone_from_slice(tcp_data);
+                tcp_data_read += tcp_data.len();
+
+                //  send ack packet
+                const IPV4_HEADER_LEN: usize = 20;
+                const TCP_HEADER_LEN: usize = 20;
+
+                let mut packet = [0u8; IPV4_HEADER_LEN + TCP_HEADER_LEN];
+
+                let ipv4_destination = self.socket_addr_v4.ip();
+
+                let mut tcp_header = MutableTcpPacket::new(&mut packet[IPV4_HEADER_LEN..]).unwrap();
+                tcp_header.set_source(12345);
+                tcp_header.set_destination(80);
+                tcp_header.set_sequence(self.state.send.next);
+                self.state.receive.next += tcp_data.len() as u32;
+                tcp_header.set_acknowledgement(self.state.receive.next);
+                tcp_header.set_flags(TcpFlags::ACK);
+                tcp_header.set_window(65535);
+                tcp_header.set_data_offset((TCP_HEADER_LEN / 4) as u8);
+
+                let checksum_val =
+                    ipv4_checksum(&tcp_header.to_immutable(), &IPV4_SOURCE, ipv4_destination);
+                tcp_header.set_checksum(checksum_val);
+
+                let mut ip_header = MutableIpv4Packet::new(&mut packet[..]).unwrap();
+                ip_header.set_next_level_protocol(IpNextHeaderProtocols::Tcp);
+                ip_header.set_source(IPV4_SOURCE);
+                ip_header.set_destination(*ipv4_destination);
+                ip_header.set_identification(1);
+                ip_header.set_header_length(5);
+                ip_header.set_version(4);
+                ip_header.set_ttl(64);
+                ip_header.set_total_length((IPV4_HEADER_LEN + TCP_HEADER_LEN) as u16);
+
+                ip_header.set_checksum(checksum(&ip_header.to_immutable()));
+
+                let size = self.tun.write(&packet).unwrap();
+            }
+        }
+
         Ok(42)
     }
 }
