@@ -8,6 +8,7 @@ use pnet::packet::Packet;
 use std::{
     io,
     net::{Ipv4Addr, SocketAddr, SocketAddrV4, ToSocketAddrs},
+    num::Wrapping,
     os::unix::io::RawFd,
     rc::Rc,
 };
@@ -17,15 +18,15 @@ const MTU: usize = 1500;
 
 #[derive(Debug)]
 struct ReceiveSequence {
-    next: u32,
+    next: Wrapping<u32>,
     window: u16,
     // irs: u32,
 }
 
 #[derive(Debug)]
 struct SendSequence {
-    unacknowledged: u32,
-    next: u32,
+    unacknowledged: Wrapping<u32>,
+    next: Wrapping<u32>,
     window: u16,
     // iss: u32,
 }
@@ -79,7 +80,7 @@ impl TcpStream<Closed> {
         let mut packet = [0u8; IPV4_HEADER_LEN + TCP_SYN_HEADER_LEN];
 
         let ipv4_destination = self.socket_addr_v4.ip();
-        let initial_seq = 30; // TODO: Randomize sequence number generation
+        let initial_seq = Wrapping(14096); // TODO: Randomize sequence number generation
 
         // TODO: Use builder pattern to reduce duplication of set methods
         let mut tcp_header = MutableTcpPacket::new(&mut packet[IPV4_HEADER_LEN..]).unwrap();
@@ -87,7 +88,7 @@ impl TcpStream<Closed> {
         tcp_header.set_source(12345);
         tcp_header.set_destination(80);
         // TODO: What is sequence?
-        tcp_header.set_sequence(initial_seq);
+        tcp_header.set_sequence(initial_seq.0);
         tcp_header.set_acknowledgement(0);
         tcp_header.set_flags(TcpFlags::SYN);
         tcp_header.set_window(65535);
@@ -132,13 +133,13 @@ impl TcpStream<Closed> {
         // Send ACK back to server.
 
         let mut send = SendSequence {
-            unacknowledged: 0,
-            next: initial_seq + 1,
+            unacknowledged: Wrapping(0u32),
+            next: initial_seq + Wrapping(1u32),
             window: 65535,
         };
 
         let receive = ReceiveSequence {
-            next: tcp_response.get_sequence() + 1,
+            next: Wrapping(tcp_response.get_sequence()) + Wrapping(1u32),
             window: tcp_response.get_window(),
         };
 
@@ -147,8 +148,8 @@ impl TcpStream<Closed> {
         let mut tcp_header = MutableTcpPacket::new(&mut packet[IPV4_HEADER_LEN..]).unwrap();
         tcp_header.set_source(12345);
         tcp_header.set_destination(80);
-        tcp_header.set_sequence(send.next);
-        tcp_header.set_acknowledgement(receive.next);
+        tcp_header.set_sequence(send.next.0);
+        tcp_header.set_acknowledgement(receive.next.0);
         tcp_header.set_flags(TcpFlags::ACK);
         tcp_header.set_window(65535);
         tcp_header.set_data_offset((TCP_HEADER_LEN / 4) as u8);
@@ -200,9 +201,9 @@ impl TcpStream<Established> {
         let mut tcp_header = MutableTcpPacket::new(&mut packet[IPV4_HEADER_LEN..]).unwrap();
         tcp_header.set_source(12345);
         tcp_header.set_destination(80);
-        tcp_header.set_sequence(self.state.send.next);
-        self.state.send.next = self.state.send.next + 1;
-        tcp_header.set_acknowledgement(self.state.receive.next);
+        tcp_header.set_sequence(self.state.send.next.0);
+        self.state.send.next = self.state.send.next + Wrapping(1u32);
+        tcp_header.set_acknowledgement(self.state.receive.next.0);
         tcp_header.set_flags(TcpFlags::FIN | TcpFlags::ACK);
         tcp_header.set_window(65535);
         tcp_header.set_data_offset((TCP_HEADER_LEN / 4) as u8);
@@ -255,9 +256,9 @@ impl TcpStream<Established> {
         let mut tcp_header = MutableTcpPacket::new(&mut packet[IPV4_HEADER_LEN..]).unwrap();
         tcp_header.set_source(12345);
         tcp_header.set_destination(80);
-        tcp_header.set_sequence(self.state.send.next);
-        self.state.send.next = self.state.send.next + 1;
-        tcp_header.set_acknowledgement(self.state.receive.next);
+        tcp_header.set_sequence(self.state.send.next.0);
+        self.state.send.next = self.state.send.next + Wrapping(1u32);
+        tcp_header.set_acknowledgement(self.state.receive.next.0);
         tcp_header.set_flags(TcpFlags::RST);
         tcp_header.set_window(65535);
         tcp_header.set_data_offset((TCP_HEADER_LEN / 4) as u8);
@@ -333,9 +334,9 @@ impl io::Read for TcpStream<Established> {
                 let mut tcp_header = MutableTcpPacket::new(&mut packet[IPV4_HEADER_LEN..]).unwrap();
                 tcp_header.set_source(12345);
                 tcp_header.set_destination(80);
-                tcp_header.set_sequence(self.state.send.next);
-                self.state.receive.next += tcp_data.len() as u32;
-                tcp_header.set_acknowledgement(self.state.receive.next);
+                tcp_header.set_sequence(self.state.send.next.0);
+                self.state.receive.next += Wrapping(tcp_data.len() as u32);
+                tcp_header.set_acknowledgement(self.state.receive.next.0);
                 tcp_header.set_flags(TcpFlags::ACK);
                 tcp_header.set_window(65535);
                 tcp_header.set_data_offset((TCP_HEADER_LEN / 4) as u8);
@@ -391,9 +392,9 @@ impl io::Write for TcpStream<Established> {
                 MutableTcpPacket::new(&mut packet[IPV4_HEADER_LEN..packet_length]).unwrap();
             tcp_header.set_source(12345);
             tcp_header.set_destination(80);
-            tcp_header.set_sequence(self.state.send.next);
-            self.state.send.next = self.state.send.next + segment.len() as u32;
-            tcp_header.set_acknowledgement(self.state.receive.next);
+            tcp_header.set_sequence(self.state.send.next.0);
+            self.state.send.next = self.state.send.next + Wrapping(segment.len() as u32);
+            tcp_header.set_acknowledgement(self.state.receive.next.0);
             tcp_header.set_flags(TcpFlags::PSH | TcpFlags::ACK);
             tcp_header.set_window(65535);
             tcp_header.set_data_offset((TCP_HEADER_LEN / 4) as u8);
