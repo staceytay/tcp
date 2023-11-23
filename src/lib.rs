@@ -80,7 +80,7 @@ impl TcpStream<Closed> {
         let mut packet = [0u8; IPV4_HEADER_LEN + TCP_SYN_HEADER_LEN];
 
         let ipv4_destination = self.socket_addr_v4.ip();
-        let initial_seq = Wrapping(14096); // TODO: Randomize sequence number generation
+        let initial_seq = Wrapping(rand::random::<u32>());
 
         // TODO: Use builder pattern to reduce duplication of set methods
         let mut tcp_header = MutableTcpPacket::new(&mut packet[IPV4_HEADER_LEN..]).unwrap();
