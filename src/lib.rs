@@ -314,13 +314,14 @@ impl io::Read for TcpStream<Established> {
             }
 
             // TODO: Check that received packet is within receive window
+            // TODO: Check order of received packet
             let tcp_data = tcp_response.payload();
             if tcp_data.len() > 0 {
                 println!("tcp_data_read = {}", tcp_data_read);
                 println!(
                     "TCP DATA RECEIVED: LEN = {}, {}...",
                     tcp_data.len(),
-                    &(std::str::from_utf8(tcp_data).unwrap())[..24]
+                    &(std::str::from_utf8(tcp_data).unwrap())[..std::cmp::min(tcp_data.len(), 24)]
                 );
                 // TODO: check that end is still within buf.len()
                 buf[tcp_data_read..tcp_data_read + tcp_data.len()].clone_from_slice(tcp_data);
