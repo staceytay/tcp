@@ -5,6 +5,7 @@ use pnet::packet::ip::IpNextHeaderProtocols;
 use pnet::packet::ipv4::{checksum, Ipv4Packet, MutableIpv4Packet};
 use pnet::packet::tcp::{ipv4_checksum, MutableTcpPacket, TcpFlags, TcpOption, TcpPacket};
 use pnet::packet::Packet;
+use rand::{thread_rng, Rng};
 use std::{
     io,
     net::{Ipv4Addr, SocketAddr, SocketAddrV4, ToSocketAddrs},
@@ -80,12 +81,14 @@ impl TcpStream<Closed> {
         let mut packet = [0u8; IPV4_HEADER_LEN + TCP_SYN_HEADER_LEN];
 
         let ipv4_destination = self.socket_addr_v4.ip();
-        let initial_seq = Wrapping(rand::random::<u32>());
+        let mut rng = thread_rng();
+        let initial_seq = Wrapping(rng.gen());
+        let tcp_source = rng.gen_range(49152..=65535);
 
         // TODO: Use builder pattern to reduce duplication of set methods
         let mut tcp_header = MutableTcpPacket::new(&mut packet[IPV4_HEADER_LEN..]).unwrap();
         // TODO: use a random source port?
-        tcp_header.set_source(12345);
+        tcp_header.set_source(tcp_source);
         tcp_header.set_destination(80);
         // TODO: What is sequence?
         tcp_header.set_sequence(initial_seq.0);
@@ -146,7 +149,7 @@ impl TcpStream<Closed> {
         const TCP_HEADER_LEN: usize = 20;
         let mut packet = [0u8; IPV4_HEADER_LEN + TCP_HEADER_LEN];
         let mut tcp_header = MutableTcpPacket::new(&mut packet[IPV4_HEADER_LEN..]).unwrap();
-        tcp_header.set_source(12345);
+        tcp_header.set_source(tcp_source);
         tcp_header.set_destination(80);
         tcp_header.set_sequence(send.next.0);
         tcp_header.set_acknowledgement(receive.next.0);
@@ -180,7 +183,7 @@ impl TcpStream<Closed> {
             state: Established {
                 receive,
                 send,
-                source: 12345,
+                source: tcp_source,
             },
             tun: Rc::clone(&self.tun),
         })
@@ -199,7 +202,7 @@ impl TcpStream<Established> {
         let ipv4_destination = self.socket_addr_v4.ip();
 
         let mut tcp_header = MutableTcpPacket::new(&mut packet[IPV4_HEADER_LEN..]).unwrap();
-        tcp_header.set_source(12345);
+        tcp_header.set_source(self.state.source);
         tcp_header.set_destination(80);
         tcp_header.set_sequence(self.state.send.next.0);
         self.state.send.next = self.state.send.next + Wrapping(1u32);
@@ -254,7 +257,7 @@ impl TcpStream<Established> {
         let ipv4_destination = self.socket_addr_v4.ip();
 
         let mut tcp_header = MutableTcpPacket::new(&mut packet[IPV4_HEADER_LEN..]).unwrap();
-        tcp_header.set_source(12345);
+        tcp_header.set_source(self.state.source);
         tcp_header.set_destination(80);
         tcp_header.set_sequence(self.state.send.next.0);
         self.state.send.next = self.state.send.next + Wrapping(1u32);
@@ -332,7 +335,7 @@ impl io::Read for TcpStream<Established> {
                 let ipv4_destination = self.socket_addr_v4.ip();
 
                 let mut tcp_header = MutableTcpPacket::new(&mut packet[IPV4_HEADER_LEN..]).unwrap();
-                tcp_header.set_source(12345);
+                tcp_header.set_source(self.state.source);
                 tcp_header.set_destination(80);
                 tcp_header.set_sequence(self.state.send.next.0);
                 self.state.receive.next += Wrapping(tcp_data.len() as u32);
@@ -390,7 +393,7 @@ impl io::Write for TcpStream<Established> {
 
             let mut tcp_header =
                 MutableTcpPacket::new(&mut packet[IPV4_HEADER_LEN..packet_length]).unwrap();
-            tcp_header.set_source(12345);
+            tcp_header.set_source(self.state.source);
             tcp_header.set_destination(80);
             tcp_header.set_sequence(self.state.send.next.0);
             self.state.send.next = self.state.send.next + Wrapping(segment.len() as u32);
