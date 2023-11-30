@@ -75,9 +75,10 @@ impl TcpStream<Closed> {
 
     fn open_tcp_connection(&self) -> Result<TcpStream<Established>, &'static str> {
         const IPV4_HEADER_LEN: usize = 20;
-        const TCP_SYN_HEADER_LEN: usize = 24;
+        const TCP_HEADER_LEN: usize = 20;
+        const TCP_MSS_OPTION_LEN: usize = 4;
 
-        let mut packet = [0u8; IPV4_HEADER_LEN + TCP_SYN_HEADER_LEN];
+        let mut packet = [0u8; IPV4_HEADER_LEN + TCP_HEADER_LEN + TCP_MSS_OPTION_LEN];
 
         let ipv4_destination = self.socket_addr_v4.ip();
         let tcp_destination = self.socket_addr_v4.port();
@@ -89,19 +90,18 @@ impl TcpStream<Closed> {
         let mut tcp_header = MutableTcpPacket::new(&mut packet[IPV4_HEADER_LEN..]).unwrap();
         tcp_header.set_source(tcp_source);
         tcp_header.set_destination(tcp_destination);
+        tcp_header.set_window(65535);
+
         tcp_header.set_sequence(initial_seq.0);
         tcp_header.set_acknowledgement(0);
         tcp_header.set_flags(TcpFlags::SYN);
-        tcp_header.set_window(65535);
-        tcp_header.set_data_offset((TCP_SYN_HEADER_LEN / 4) as u8);
-
+        tcp_header.set_data_offset(((TCP_HEADER_LEN + TCP_MSS_OPTION_LEN) / 4) as u8);
         tcp_header.set_options(&vec![TcpOption::mss(1460)]);
-
-        println!("SYN TCP HEADER: {:?}", tcp_header);
-
-        let checksum_val =
-            ipv4_checksum(&tcp_header.to_immutable(), &IPV4_SOURCE, ipv4_destination);
-        tcp_header.set_checksum(checksum_val);
+        tcp_header.set_checksum(ipv4_checksum(
+            &tcp_header.to_immutable(),
+            &IPV4_SOURCE,
+            ipv4_destination,
+        ));
 
         let mut ip_header = MutableIpv4Packet::new(&mut packet[..]).unwrap();
         ip_header.set_next_level_protocol(IpNextHeaderProtocols::Tcp);
@@ -111,8 +111,8 @@ impl TcpStream<Closed> {
         ip_header.set_header_length(5);
         ip_header.set_version(4);
         ip_header.set_ttl(64);
-        ip_header.set_total_length((IPV4_HEADER_LEN + TCP_SYN_HEADER_LEN) as u16);
 
+        ip_header.set_total_length((IPV4_HEADER_LEN + TCP_HEADER_LEN + TCP_MSS_OPTION_LEN) as u16);
         ip_header.set_checksum(checksum(&ip_header.to_immutable()));
 
         let size = self.tun.write(&packet).unwrap();
@@ -144,7 +144,6 @@ impl TcpStream<Closed> {
             window: tcp_response.get_window(),
         };
 
-        const TCP_HEADER_LEN: usize = 20;
         let mut packet = [0u8; IPV4_HEADER_LEN + TCP_HEADER_LEN];
         let mut tcp_header = MutableTcpPacket::new(&mut packet[IPV4_HEADER_LEN..]).unwrap();
         tcp_header.set_source(tcp_source);
