@@ -41,7 +41,6 @@ pub struct Established {
 
 pub struct TcpStream<State = Closed> {
     socket_addr_v4: SocketAddrV4,
-    // state: std::marker::PhantomData<State>,
     state: State,
     tun: Rc<TunSocket>,
 }
