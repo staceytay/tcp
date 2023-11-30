@@ -49,6 +49,24 @@ impl<T> TcpStream<T> {
     pub fn peer_addr(&self) -> io::Result<SocketAddrV4> {
         Ok(self.socket_addr_v4)
     }
+
+    // We assume that the `packet` slice here is the entire ipv4 packet, i.e.
+    // `packet.len()` is the ipv4 packet's total length.
+    fn prepare_ipv4_packet(&self, packet: &mut [u8]) -> () {
+        // TODO: Check buf size here
+        let packet_length = packet.len();
+        let mut ip_header = MutableIpv4Packet::new(&mut packet[..]).unwrap();
+        ip_header.set_next_level_protocol(IpNextHeaderProtocols::Tcp);
+        ip_header.set_source(IPV4_SOURCE);
+        ip_header.set_destination(*self.socket_addr_v4.ip());
+        ip_header.set_identification(1);
+        ip_header.set_header_length(5);
+        ip_header.set_version(4);
+        ip_header.set_ttl(64);
+
+        ip_header.set_total_length(packet_length as u16);
+        ip_header.set_checksum(checksum(&ip_header.to_immutable()));
+    }
 }
 
 impl TcpStream<Closed> {
@@ -103,17 +121,7 @@ impl TcpStream<Closed> {
             ipv4_destination,
         ));
 
-        let mut ip_header = MutableIpv4Packet::new(&mut packet[..]).unwrap();
-        ip_header.set_next_level_protocol(IpNextHeaderProtocols::Tcp);
-        ip_header.set_source(IPV4_SOURCE);
-        ip_header.set_destination(*ipv4_destination);
-        ip_header.set_identification(1);
-        ip_header.set_header_length(5);
-        ip_header.set_version(4);
-        ip_header.set_ttl(64);
-
-        ip_header.set_total_length((IPV4_HEADER_LEN + TCP_HEADER_LEN + TCP_MSS_OPTION_LEN) as u16);
-        ip_header.set_checksum(checksum(&ip_header.to_immutable()));
+        self.prepare_ipv4_packet(&mut packet[..]);
 
         let size = self.tun.write(&packet).unwrap();
 
@@ -160,17 +168,7 @@ impl TcpStream<Closed> {
             ipv4_checksum(&tcp_header.to_immutable(), &IPV4_SOURCE, &ipv4_destination);
         tcp_header.set_checksum(checksum_val);
 
-        let mut ip_header = MutableIpv4Packet::new(&mut packet[..]).unwrap();
-        ip_header.set_next_level_protocol(IpNextHeaderProtocols::Tcp);
-        ip_header.set_source(IPV4_SOURCE);
-        ip_header.set_destination(*ipv4_destination);
-        ip_header.set_identification(1);
-        ip_header.set_header_length(5);
-        ip_header.set_version(4);
-        ip_header.set_ttl(64);
-        ip_header.set_total_length((IPV4_HEADER_LEN + TCP_HEADER_LEN) as u16);
-
-        ip_header.set_checksum(checksum(&ip_header.to_immutable()));
+        self.prepare_ipv4_packet(&mut packet[..]);
 
         let size = self.tun.write(&packet).unwrap();
         println!("Size: {size}");
@@ -213,17 +211,7 @@ impl TcpStream<Established> {
             ipv4_checksum(&tcp_header.to_immutable(), &IPV4_SOURCE, ipv4_destination);
         tcp_header.set_checksum(checksum_val);
 
-        let mut ip_header = MutableIpv4Packet::new(&mut packet[..]).unwrap();
-        ip_header.set_next_level_protocol(IpNextHeaderProtocols::Tcp);
-        ip_header.set_source(IPV4_SOURCE);
-        ip_header.set_destination(*ipv4_destination);
-        ip_header.set_identification(1);
-        ip_header.set_header_length(5);
-        ip_header.set_version(4);
-        ip_header.set_ttl(64);
-        ip_header.set_total_length((IPV4_HEADER_LEN + TCP_HEADER_LEN) as u16);
-
-        ip_header.set_checksum(checksum(&ip_header.to_immutable()));
+        self.prepare_ipv4_packet(&mut packet[..]);
 
         let size = self.tun.write(&packet).unwrap();
 
@@ -269,17 +257,7 @@ impl TcpStream<Established> {
             ipv4_checksum(&tcp_header.to_immutable(), &IPV4_SOURCE, ipv4_destination);
         tcp_header.set_checksum(checksum_val);
 
-        let mut ip_header = MutableIpv4Packet::new(&mut packet[..]).unwrap();
-        ip_header.set_next_level_protocol(IpNextHeaderProtocols::Tcp);
-        ip_header.set_source(IPV4_SOURCE);
-        ip_header.set_destination(*ipv4_destination);
-        ip_header.set_identification(1);
-        ip_header.set_header_length(5);
-        ip_header.set_version(4);
-        ip_header.set_ttl(64);
-        ip_header.set_total_length((IPV4_HEADER_LEN + TCP_HEADER_LEN) as u16);
-
-        ip_header.set_checksum(checksum(&ip_header.to_immutable()));
+        self.prepare_ipv4_packet(&mut packet[..]);
 
         println!("reset: TunSocket = {:?}", self.tun);
 
@@ -354,17 +332,7 @@ impl io::Read for TcpStream<Established> {
                     ipv4_checksum(&tcp_header.to_immutable(), &IPV4_SOURCE, ipv4_destination);
                 tcp_header.set_checksum(checksum_val);
 
-                let mut ip_header = MutableIpv4Packet::new(&mut packet[..]).unwrap();
-                ip_header.set_next_level_protocol(IpNextHeaderProtocols::Tcp);
-                ip_header.set_source(IPV4_SOURCE);
-                ip_header.set_destination(*ipv4_destination);
-                ip_header.set_identification(1);
-                ip_header.set_header_length(5);
-                ip_header.set_version(4);
-                ip_header.set_ttl(64);
-                ip_header.set_total_length((IPV4_HEADER_LEN + TCP_HEADER_LEN) as u16);
-
-                ip_header.set_checksum(checksum(&ip_header.to_immutable()));
+                self.prepare_ipv4_packet(&mut packet[..]);
 
                 let size = self.tun.write(&packet).unwrap();
             }
@@ -415,17 +383,7 @@ impl io::Write for TcpStream<Established> {
                 ipv4_checksum(&tcp_header.to_immutable(), &IPV4_SOURCE, ipv4_destination);
             tcp_header.set_checksum(checksum_val);
 
-            let mut ip_header = MutableIpv4Packet::new(&mut packet[..]).unwrap();
-            ip_header.set_next_level_protocol(IpNextHeaderProtocols::Tcp);
-            ip_header.set_source(IPV4_SOURCE);
-            ip_header.set_destination(*ipv4_destination);
-            ip_header.set_identification(1);
-            ip_header.set_header_length(5);
-            ip_header.set_version(4);
-            ip_header.set_ttl(64);
-            ip_header.set_total_length(packet_length as u16);
-
-            ip_header.set_checksum(checksum(&ip_header.to_immutable()));
+            self.prepare_ipv4_packet(&mut packet[..packet_length]);
 
             let size = self.tun.write(&packet[..packet_length]).unwrap();
         }
