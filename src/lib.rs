@@ -86,10 +86,8 @@ impl TcpStream<Closed> {
 
         // TODO: Use builder pattern to reduce duplication of set methods
         let mut tcp_header = MutableTcpPacket::new(&mut packet[IPV4_HEADER_LEN..]).unwrap();
-        // TODO: use a random source port?
         tcp_header.set_source(tcp_source);
         tcp_header.set_destination(80);
-        // TODO: What is sequence?
         tcp_header.set_sequence(initial_seq.0);
         tcp_header.set_acknowledgement(0);
         tcp_header.set_flags(TcpFlags::SYN);
@@ -298,6 +296,10 @@ impl io::Read for TcpStream<Established> {
 
         loop {
             let mut read_buf = [0u8; MTU];
+            // TODO: use something like epoll to see if it's worth reading,
+            // otherwise skip, and can assume no more data to pass in after a
+            // certain time and return. We shouldn't close the connection here
+            // though, will probably need to use Drop for that?
             let packet = self.tun.read(&mut read_buf).unwrap();
             let response = Ipv4Packet::new(&packet).unwrap();
             let tcp_response = TcpPacket::new(response.payload()).unwrap();
@@ -314,6 +316,7 @@ impl io::Read for TcpStream<Established> {
 
             // TODO: Check that received packet is within receive window
             // TODO: Check order of received packet
+            // TODO: Implement delayed ACK? See "4.2.3.2  When to Send an ACK Segment" in rfc1122
             let tcp_data = tcp_response.payload();
             if tcp_data.len() > 0 {
                 println!("tcp_data_read = {}", tcp_data_read);
@@ -426,6 +429,15 @@ impl io::Write for TcpStream<Established> {
         Ok(42)
     }
 }
+
+// impl<T> Drop for TcpStream<T> {
+//     fn drop(&mut self) {}
+// }
+// impl Drop for TcpStream<Established> {
+//     fn drop(&mut self) {
+//         // Implementation here.
+//     }
+// }
 
 #[derive(Clone, Debug)]
 struct TunSocket {
