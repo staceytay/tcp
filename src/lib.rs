@@ -143,19 +143,21 @@ impl TcpStream<Closed> {
 
         // Technically we're in the SYN-SENT state here.
 
-        let mut tcp_response = self.receive_tcp_packet();
-        loop {
-            if tcp_response.get_flags() == TcpFlags::SYN | TcpFlags::ACK {
-                break;
-            }
-            tcp_response = self.receive_tcp_packet();
-        }
-
         let send = SendSequence {
             unacknowledged: Wrapping(0u32),
             next: initial_seq + Wrapping(1u32),
             window: 65535,
         };
+
+        let mut tcp_response = self.receive_tcp_packet();
+        loop {
+            if tcp_response.get_flags() == TcpFlags::SYN | TcpFlags::ACK
+                && tcp_response.get_acknowledgement() == send.next.0
+            {
+                break;
+            }
+            tcp_response = self.receive_tcp_packet();
+        }
 
         let receive = ReceiveSequence {
             next: Wrapping(tcp_response.get_sequence()) + Wrapping(1u32),
