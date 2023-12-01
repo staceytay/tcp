@@ -67,6 +67,22 @@ impl<T> TcpStream<T> {
         ip_header.set_total_length(packet_length as u16);
         ip_header.set_checksum(checksum(&ip_header.to_immutable()));
     }
+
+    // Read from tun device and pass TcpPacket to caller if its a TCP packet.
+    // Function expects that there's a packet to be received over the network.
+    // Caller is responsible for ensuring this.
+    // Should the checking of IP and TCP checksum happen here? What happens if the checksums don't match?
+    // Should the checking of sequence happen here?
+    fn receive_tcp_packet(&self) -> TcpPacket {
+        loop {
+            let mut buf = [0; MTU];
+            let packet = self.tun.read(&mut buf).unwrap();
+            // Sometimes ICMP packets get passed in so we have to check.
+            if let Some(ipv4_packet) = Ipv4Packet::new(packet) {
+                return TcpPacket::owned(ipv4_packet.payload().to_owned()).unwrap();
+            }
+        }
+    }
 }
 
 impl TcpStream<Closed> {
@@ -128,18 +144,13 @@ impl TcpStream<Closed> {
         println!("");
         // Technically we're in the SYN-SENT state here.
 
-        let mut buf = [0; MTU];
-
-        let packet = self.tun.read(&mut buf).unwrap();
-        println!("response: packet len = {}", packet.len());
-        // println!("packet: {:?}", packet);
-        let response = Ipv4Packet::new(&packet).unwrap();
-        // println!("IP RESPONSE: {:?}", response);
-        let tcp_response = TcpPacket::new(response.payload()).unwrap();
-        println!("SYN ACK TCP RESPONSE: {:?}", tcp_response);
-
-        // TODO: Verify checksum and check if response packet is a SYN ACK.
-        // Send ACK back to server.
+        let mut tcp_response = self.receive_tcp_packet();
+        loop {
+            if tcp_response.get_flags() == TcpFlags::SYN | TcpFlags::ACK {
+                break;
+            }
+            tcp_response = self.receive_tcp_packet();
+        }
 
         let mut send = SendSequence {
             unacknowledged: Wrapping(0u32),
@@ -152,6 +163,7 @@ impl TcpStream<Closed> {
             window: tcp_response.get_window(),
         };
 
+        // Send ACK back to server.
         let mut packet = [0u8; IPV4_HEADER_LEN + TCP_HEADER_LEN];
         let mut tcp_header = MutableTcpPacket::new(&mut packet[IPV4_HEADER_LEN..]).unwrap();
         tcp_header.set_source(tcp_source);
