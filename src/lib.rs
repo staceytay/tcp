@@ -227,15 +227,8 @@ impl TcpStream<Established> {
 
         // Technically we're in the LAST-ACK state here.
         // Expecting an ACK from the remote server.
+        let tcp_response = self.receive_tcp_packet();
 
-        let mut buf = [0; MTU];
-
-        let packet = self.tun.read(&mut buf).unwrap();
-        println!("response: packet len = {}", packet.len());
-        // println!("packet: {:?}", packet);
-        let response = Ipv4Packet::new(&packet).unwrap();
-        // println!("IP RESPONSE: {:?}", response);
-        let tcp_response = TcpPacket::new(response.payload()).unwrap();
         println!(
             "TcpStream<Established>: close: TCP RESPONSE 1: {:?}",
             tcp_response
