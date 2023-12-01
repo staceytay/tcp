@@ -170,7 +170,7 @@ impl TcpStream<Closed> {
         tcp_header.set_sequence(send.next.0);
         tcp_header.set_acknowledgement(receive.next.0);
         tcp_header.set_flags(TcpFlags::ACK);
-        tcp_header.set_window(65535);
+        tcp_header.set_window(send.window);
         tcp_header.set_data_offset((TCP_HEADER_LEN / 4) as u8);
 
         println!("ACK TCP ACK REPLY FROM US: {:?}", tcp_header);
@@ -214,7 +214,7 @@ impl TcpStream<Established> {
         self.state.send.next = self.state.send.next + Wrapping(1u32);
         tcp_header.set_acknowledgement(self.state.receive.next.0);
         tcp_header.set_flags(TcpFlags::FIN | TcpFlags::ACK);
-        tcp_header.set_window(65535);
+        tcp_header.set_window(self.state.send.window);
         tcp_header.set_data_offset((TCP_HEADER_LEN / 4) as u8);
 
         let checksum_val =
@@ -253,7 +253,7 @@ impl TcpStream<Established> {
         self.state.send.next = self.state.send.next + Wrapping(1u32);
         tcp_header.set_acknowledgement(self.state.receive.next.0);
         tcp_header.set_flags(TcpFlags::RST);
-        tcp_header.set_window(65535);
+        tcp_header.set_window(self.state.send.window);
         tcp_header.set_data_offset((TCP_HEADER_LEN / 4) as u8);
 
         let checksum_val =
@@ -328,7 +328,7 @@ impl io::Read for TcpStream<Established> {
                 self.state.receive.next += Wrapping(tcp_data.len() as u32);
                 tcp_header.set_acknowledgement(self.state.receive.next.0);
                 tcp_header.set_flags(TcpFlags::ACK);
-                tcp_header.set_window(65535);
+                tcp_header.set_window(self.state.send.window);
                 tcp_header.set_data_offset((TCP_HEADER_LEN / 4) as u8);
 
                 let checksum_val =
@@ -377,7 +377,7 @@ impl io::Write for TcpStream<Established> {
             self.state.send.next = self.state.send.next + Wrapping(segment.len() as u32);
             tcp_header.set_acknowledgement(self.state.receive.next.0);
             tcp_header.set_flags(TcpFlags::PSH | TcpFlags::ACK);
-            tcp_header.set_window(65535);
+            tcp_header.set_window(self.state.send.window);
             tcp_header.set_data_offset((TCP_HEADER_LEN / 4) as u8);
 
             tcp_header.set_payload(segment);
