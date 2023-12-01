@@ -79,12 +79,15 @@ impl<T> TcpStream<T> {
             let packet = self.tun.read(&mut buf).unwrap();
             // Sometimes ICMP packets get passed in so we have to check.
             if let Some(ipv4_packet) = Ipv4Packet::new(packet) {
-                let tcp_packet = TcpPacket::owned(ipv4_packet.payload().to_owned()).unwrap();
-                // Validate packet checksum.
-                if tcp_packet.get_checksum()
-                    == ipv4_checksum(&tcp_packet, self.socket_addr_v4.ip(), &IPV4_SOURCE)
-                {
-                    return tcp_packet;
+                // Validate ipv4 packet checksum.
+                if ipv4_packet.get_checksum() == checksum(&ipv4_packet) {
+                    let tcp_packet = TcpPacket::owned(ipv4_packet.payload().to_owned()).unwrap();
+                    // Validate tcp packet checksum.
+                    if tcp_packet.get_checksum()
+                        == ipv4_checksum(&tcp_packet, self.socket_addr_v4.ip(), &IPV4_SOURCE)
+                    {
+                        return tcp_packet;
+                    }
                 }
             }
         }
