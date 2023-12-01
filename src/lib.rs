@@ -93,7 +93,7 @@ impl TcpStream<Closed> {
             SocketAddr::V4(socket_addr_v4) => {
                 let tun = Rc::new(TunSocket::new("tun0")?);
 
-                let mut tcp_stream = TcpStream {
+                let tcp_stream = TcpStream {
                     socket_addr_v4,
                     state: Closed,
                     tun,
@@ -151,7 +151,7 @@ impl TcpStream<Closed> {
             tcp_response = self.receive_tcp_packet();
         }
 
-        let mut send = SendSequence {
+        let send = SendSequence {
             unacknowledged: Wrapping(0u32),
             next: initial_seq + Wrapping(1u32),
             window: 65535,
@@ -223,7 +223,7 @@ impl TcpStream<Established> {
 
         self.prepare_ipv4_packet(&mut packet[..]);
 
-        let size = self.tun.write(&packet).unwrap();
+        self.tun.write(&packet).unwrap();
 
         // Technically we're in the LAST-ACK state here.
         // Expecting an ACK from the remote server.
@@ -264,7 +264,7 @@ impl TcpStream<Established> {
 
         println!("reset: TunSocket = {:?}", self.tun);
 
-        let size = self.tun.write(&packet).unwrap();
+        self.tun.write(&packet).unwrap();
 
         Ok(())
     }
@@ -293,7 +293,7 @@ impl io::Read for TcpStream<Established> {
                 // We're in the CLOSE-WAIT state here.
                 // Increment for FIN packet received.
                 self.state.receive.next += 1;
-                self.close();
+                let _ = self.close();
                 break;
             }
 
@@ -337,7 +337,7 @@ impl io::Read for TcpStream<Established> {
 
                 self.prepare_ipv4_packet(&mut packet[..]);
 
-                let size = self.tun.write(&packet).unwrap();
+                self.tun.write(&packet).unwrap();
             }
         }
 
@@ -388,7 +388,7 @@ impl io::Write for TcpStream<Established> {
 
             self.prepare_ipv4_packet(&mut packet[..packet_length]);
 
-            let size = self.tun.write(&packet[..packet_length]).unwrap();
+            self.tun.write(&packet[..packet_length]).unwrap();
         }
 
         Ok(42)
