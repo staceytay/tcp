@@ -139,9 +139,8 @@ impl TcpStream<Closed> {
 
         self.prepare_ipv4_packet(&mut packet[..]);
 
-        let size = self.tun.write(&packet).unwrap();
+        self.tun.write(&packet).unwrap();
 
-        println!("");
         // Technically we're in the SYN-SENT state here.
 
         let mut tcp_response = self.receive_tcp_packet();
@@ -182,8 +181,7 @@ impl TcpStream<Closed> {
 
         self.prepare_ipv4_packet(&mut packet[..]);
 
-        let size = self.tun.write(&packet).unwrap();
-        println!("Size: {size}");
+        self.tun.write(&packet).unwrap();
 
         Ok(TcpStream {
             socket_addr_v4: self.socket_addr_v4,
