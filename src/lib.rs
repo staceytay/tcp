@@ -50,6 +50,12 @@ impl<T> TcpStream<T> {
         Ok(self.socket_addr_v4)
     }
 
+    // TODO: Perhaps a better approach would be to have a write packet function
+    // that takes in a MutableTcpPacket and then adds in stuff like checksum
+    // (and maybe sequence numbers?) and ipv4 packet wrapping and then write to
+    // the TUN device. This should still allow the caller to set the tcp
+    // payload, tcp flags, and any other stuff that it wants, but only for the
+    // tcp packet.
     // We assume that the `packet` slice here is the entire ipv4 packet, i.e.
     // `packet.len()` is the ipv4 packet's total length.
     fn prepare_ipv4_packet(&self, packet: &mut [u8]) -> () {
