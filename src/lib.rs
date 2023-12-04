@@ -378,13 +378,7 @@ impl io::Read for TcpStream<Established> {
             // though, will probably need to use Drop for that?
             let tcp_response = self.receive_tcp_packet();
 
-            println!(
-                "TcpStream<Established>: read: tcp_response.get_sequence = {}, self.state.receive.next.0 = {}",
-                tcp_response.get_sequence(),
-                self.state.receive.next.0
-            );
             if tcp_response.get_sequence() != self.state.receive.next.0 {
-                println!("TcpStream<Established>: read: CONTINUED");
                 continue;
             }
 
@@ -397,16 +391,9 @@ impl io::Read for TcpStream<Established> {
             }
 
             // TODO: Check that received packet is within receive window
-            // TODO: Check order of received packet
             // TODO: Implement delayed ACK? See "4.2.3.2  When to Send an ACK Segment" in rfc1122
             let tcp_data = tcp_response.payload();
             if tcp_data.len() > 0 {
-                println!("tcp_data_read = {}", tcp_data_read);
-                println!(
-                    "TCP DATA RECEIVED: LEN = {}, {}...",
-                    tcp_data.len(),
-                    &(std::str::from_utf8(tcp_data).unwrap())[..std::cmp::min(tcp_data.len(), 24)]
-                );
                 // TODO: check that end is still within buf.len()
                 buf[tcp_data_read..tcp_data_read + tcp_data.len()].clone_from_slice(tcp_data);
                 tcp_data_read += tcp_data.len();
