@@ -372,16 +372,11 @@ impl io::Read for TcpStream<Established> {
         let mut tcp_data_read = 0;
 
         loop {
-            let mut read_buf = [0u8; MTU];
             // TODO: use something like epoll to see if it's worth reading,
             // otherwise skip, and can assume no more data to pass in after a
             // certain time and return. We shouldn't close the connection here
             // though, will probably need to use Drop for that?
-            let packet = self.tun.read(&mut read_buf).unwrap();
-            let response = Ipv4Packet::new(&packet).unwrap();
-            let tcp_response = TcpPacket::new(response.payload()).unwrap();
-
-            // TODO: Verify checksum of packets above ^
+            let tcp_response = self.receive_tcp_packet();
 
             println!(
                 "TcpStream<Established>: read: tcp_response.get_sequence = {}, self.state.receive.next.0 = {}",
