@@ -213,6 +213,83 @@ impl TcpStream<Closed> {
 }
 
 impl TcpStream<Established> {
+    // Idea is to reduce as much duplicate setting of fields as possible.
+    // And the caller can continue setting stuff on the packet like flags
+    // and options. Tcp options might change the length of the packet
+    // though, but so far haven't need to set anything other than MSS at the
+    // start so it's ok?
+    // But then if we set the sequence alr and new flags are added, it might
+    // change? There's an implicit rule that we can't set the FIN or SYN flag
+    // here for example because we also do the checksum calculation here.
+    // fn tcp_packet_template<'a>(&self, buf: &'a mut [u8], data: &[u8]) -> MutableTcpPacket<'a> {
+    //     // TODO: Throw error if buf is too short for packet headers + data?
+    //     const IPV4_HEADER_LEN: usize = 20;
+    //     const TCP_HEADER_LEN: usize = 20;
+
+    //     let ipv4_destination = self.socket_addr_v4.ip();
+
+    //     let mut tcp_header = MutableTcpPacket::new(&mut buf[IPV4_HEADER_LEN..]).unwrap();
+    //     tcp_header.set_source(self.socket_addr_v4.port());
+    //     tcp_header.set_destination(self.socket_addr_v4.port());
+    //     tcp_header.set_window(self.state.send.window);
+    // }
+
+    // fn packet_template<'a>(&self, buf: &'a mut [u8]) -> MutableTcpPacket<'a> {
+    //     todo!();
+
+    //     const IPV4_HEADER_LEN: usize = 20;
+    //     const TCP_HEADER_LEN: usize = 20;
+
+    //     let mut packet = [0u8; IPV4_HEADER_LEN + TCP_HEADER_LEN];
+
+    //     let ipv4_destination = self.socket_addr_v4.ip();
+    //     let tcp_destination = self.socket_addr_v4.port();
+
+    //     let mut tcp_header = MutableTcpPacket::new(&mut packet[IPV4_HEADER_LEN..]).unwrap();
+    //     tcp_header.set_source(self.state.source);
+    //     tcp_header.set_destination(tcp_destination);
+    //     tcp_header.set_sequence(self.state.send.next.0);
+    //     self.state.send.next = self.state.send.next + Wrapping(1u32);
+    //     tcp_header.set_acknowledgement(self.state.receive.next.0);
+    //     tcp_header.set_flags(TcpFlags::FIN | TcpFlags::ACK);
+    //     tcp_header.set_window(65535);
+    //     tcp_header.set_data_offset((TCP_HEADER_LEN / 4) as u8);
+
+    //     let checksum_val =
+    //         ipv4_checksum(&tcp_header.to_immutable(), &IPV4_SOURCE, ipv4_destination);
+    //     tcp_header.set_checksum(checksum_val);
+
+    //     let mut ip_header = MutableIpv4Packet::new(&mut packet[..]).unwrap();
+    //     ip_header.set_next_level_protocol(IpNextHeaderProtocols::Tcp);
+    //     ip_header.set_source(IPV4_SOURCE);
+    //     ip_header.set_destination(*ipv4_destination);
+    //     ip_header.set_identification(1);
+    //     ip_header.set_header_length(5);
+    //     ip_header.set_version(4);
+    //     ip_header.set_ttl(64);
+    //     ip_header.set_total_length((IPV4_HEADER_LEN + TCP_HEADER_LEN) as u16);
+
+    //     ip_header.set_checksum(checksum(&ip_header.to_immutable()));
+
+    //     let size = self.tun.write(&packet).unwrap();
+
+    //     // Technically we're in the LAST-ACK state here.
+    //     // Expecting an ACK from the remote server.
+
+    //     let mut buf = [0; MTU];
+
+    //     let packet = self.tun.read(&mut buf).unwrap();
+    //     println!("response: packet len = {}", packet.len());
+    //     // println!("packet: {:?}", packet);
+    //     let response = Ipv4Packet::new(&packet).unwrap();
+    //     // println!("IP RESPONSE: {:?}", response);
+    //     let tcp_response = TcpPacket::new(response.payload()).unwrap();
+    //     println!(
+    //         "TcpStream<Established>: close: TCP RESPONSE 1: {:?}",
+    //         tcp_response
+    //     );
+    // }
+
     fn close(&mut self) -> Result<(), &'static str> {
         println!("TcpStream<Established>: close");
 
