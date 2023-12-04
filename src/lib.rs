@@ -443,38 +443,52 @@ impl io::Write for TcpStream<Established> {
         const IPV4_HEADER_LEN: usize = 20;
         const TCP_HEADER_LEN: usize = 20;
         for segment in buf.chunks(MTU - TCP_HEADER_LEN - IPV4_HEADER_LEN) {
-            println!("TcpStream: write: segment length = {}", segment.len());
-            println!(
-                "TcpStream: write: segment contents = {}",
-                std::str::from_utf8(segment).unwrap()
-            );
+            loop {
+                println!("TcpStream: write: segment length = {}", segment.len());
+                println!(
+                    "TcpStream: write: segment contents = {}",
+                    std::str::from_utf8(segment).unwrap()
+                );
 
-            let mut packet = [0u8; MTU];
-            let packet_length = IPV4_HEADER_LEN + TCP_HEADER_LEN + segment.len();
+                let mut packet = [0u8; MTU];
+                let packet_length = IPV4_HEADER_LEN + TCP_HEADER_LEN + segment.len();
 
-            let ipv4_destination = self.socket_addr_v4.ip();
-            let tcp_destination = self.socket_addr_v4.port();
+                let ipv4_destination = self.socket_addr_v4.ip();
+                let tcp_destination = self.socket_addr_v4.port();
 
-            let mut tcp_header =
-                MutableTcpPacket::new(&mut packet[IPV4_HEADER_LEN..packet_length]).unwrap();
-            tcp_header.set_source(self.state.source);
-            tcp_header.set_destination(tcp_destination);
-            tcp_header.set_sequence(self.state.send.next.0);
-            self.state.send.next = self.state.send.next + Wrapping(segment.len() as u32);
-            tcp_header.set_acknowledgement(self.state.receive.next.0);
-            tcp_header.set_flags(TcpFlags::PSH | TcpFlags::ACK);
-            tcp_header.set_window(self.state.send.window);
-            tcp_header.set_data_offset((TCP_HEADER_LEN / 4) as u8);
+                let mut tcp_header =
+                    MutableTcpPacket::new(&mut packet[IPV4_HEADER_LEN..packet_length]).unwrap();
+                tcp_header.set_source(self.state.source);
+                tcp_header.set_destination(tcp_destination);
+                tcp_header.set_sequence(self.state.send.next.0);
+                self.state.send.next = self.state.send.next + Wrapping(segment.len() as u32);
+                tcp_header.set_acknowledgement(self.state.receive.next.0);
+                tcp_header.set_flags(TcpFlags::PSH | TcpFlags::ACK);
+                tcp_header.set_window(self.state.send.window);
+                tcp_header.set_data_offset((TCP_HEADER_LEN / 4) as u8);
 
-            tcp_header.set_payload(segment);
+                tcp_header.set_payload(segment);
 
-            let checksum_val =
-                ipv4_checksum(&tcp_header.to_immutable(), &IPV4_SOURCE, ipv4_destination);
-            tcp_header.set_checksum(checksum_val);
+                let checksum_val =
+                    ipv4_checksum(&tcp_header.to_immutable(), &IPV4_SOURCE, ipv4_destination);
+                tcp_header.set_checksum(checksum_val);
 
-            self.prepare_ipv4_packet(&mut packet[..packet_length]);
+                self.prepare_ipv4_packet(&mut packet[..packet_length]);
 
-            self.tun.write(&packet[..packet_length]).unwrap();
+                self.tun.write(&packet[..packet_length]).unwrap();
+
+                // Wait for host to ACK sent data.
+                let tcp_response = self.receive_tcp_packet();
+                if tcp_response.get_flags() == TcpFlags::ACK
+                    && tcp_response.get_acknowledgement() == self.state.send.next.0
+                {
+                    println!(
+                        "io::Write: write: ACK received! ack = {}",
+                        tcp_response.get_acknowledgement()
+                    );
+                    break;
+                }
+            }
         }
 
         Ok(42)
