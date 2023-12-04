@@ -358,7 +358,7 @@ impl io::Read for TcpStream<Established> {
             }
         }
 
-        Ok(42)
+        Ok(tcp_data_read)
     }
 }
 
