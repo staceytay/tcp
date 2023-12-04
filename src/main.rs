@@ -12,7 +12,7 @@ fn main() -> std::io::Result<()> {
 
     let mut response = [0; 2048];
 
-    let _ = stream.write(b"GET / HTTP/1.1\nHost: example.com\nAccept: */*\n\n");
+    let _ = stream.write(b"GET / HTTP/1.1\r\nHost: example.com\r\nConnection: close\r\n\r\n");
     let _ = stream.read(&mut response);
 
     if let [headers, content] = &(str::from_utf8(&response)
