@@ -306,6 +306,16 @@ impl io::Read for TcpStream<Established> {
 
             // TODO: Verify checksum of packets above ^
 
+            println!(
+                "TcpStream<Established>: read: tcp_response.get_sequence = {}, self.state.receive.next.0 = {}",
+                tcp_response.get_sequence(),
+                self.state.receive.next.0
+            );
+            if tcp_response.get_sequence() != self.state.receive.next.0 {
+                println!("TcpStream<Established>: read: CONTINUED");
+                continue;
+            }
+
             if tcp_response.get_flags() & TcpFlags::FIN == TcpFlags::FIN {
                 // We're in the CLOSE-WAIT state here.
                 // Increment for FIN packet received.
