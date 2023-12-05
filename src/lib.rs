@@ -380,14 +380,11 @@ impl io::Write for TcpStream<Established> {
     }
 }
 
-// impl<T> Drop for TcpStream<T> {
-//     fn drop(&mut self) {}
-// }
-// impl Drop for TcpStream<Established> {
-//     fn drop(&mut self) {
-//         // Implementation here.
-//     }
-// }
+impl<T> Drop for TcpStream<T> {
+    fn drop(&mut self) {
+        // TODO: Close the connection if not closed yet?
+    }
+}
 
 #[derive(Clone, Debug)]
 struct TunSocket {
