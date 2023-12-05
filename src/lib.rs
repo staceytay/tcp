@@ -53,25 +53,6 @@ impl<T> TcpStream<T> {
         Ok(self.socket_addr_v4)
     }
 
-    fn send_tcp_packet(&self, tcp_packet: TcpPacket) -> io::Result<usize> {
-        let mut buf = [0u8; MTU];
-        let mut ip_packet = MutableIpv4Packet::new(&mut buf).unwrap();
-
-        ip_packet.set_next_level_protocol(IpNextHeaderProtocols::Tcp);
-        ip_packet.set_source(IPV4_SOURCE);
-        ip_packet.set_destination(*self.socket_addr_v4.ip());
-        ip_packet.set_identification(1);
-        ip_packet.set_header_length(5);
-        ip_packet.set_version(4);
-        ip_packet.set_ttl(64);
-        ip_packet.set_total_length((ip_packet.packet_size() + tcp_packet.packet().len()) as u16); // Use tcp packet length because `packet_size` doesn't include size of payload.
-        ip_packet.set_payload(tcp_packet.packet());
-
-        ip_packet.set_checksum(checksum(&ip_packet.to_immutable()));
-
-        self.tun.write(&buf)
-    }
-
     // Read from tun device and pass TcpPacket to caller if it's a TCP packet.
     // Function blocks if there's no packet to be received over the network.
     fn read_tcp_packet(&self) -> TcpPacket {
@@ -92,6 +73,25 @@ impl<T> TcpStream<T> {
                 }
             }
         }
+    }
+
+    fn send_tcp_packet(&self, tcp_packet: TcpPacket) -> io::Result<usize> {
+        let mut buf = [0u8; MTU];
+        let mut ip_packet = MutableIpv4Packet::new(&mut buf).unwrap();
+
+        ip_packet.set_next_level_protocol(IpNextHeaderProtocols::Tcp);
+        ip_packet.set_source(IPV4_SOURCE);
+        ip_packet.set_destination(*self.socket_addr_v4.ip());
+        ip_packet.set_identification(1);
+        ip_packet.set_header_length(5);
+        ip_packet.set_version(4);
+        ip_packet.set_ttl(64);
+        ip_packet.set_total_length((ip_packet.packet_size() + tcp_packet.packet().len()) as u16); // Use tcp packet length because `packet_size` doesn't include size of payload.
+        ip_packet.set_payload(tcp_packet.packet());
+
+        ip_packet.set_checksum(checksum(&ip_packet.to_immutable()));
+
+        self.tun.write(&buf)
     }
 }
 
