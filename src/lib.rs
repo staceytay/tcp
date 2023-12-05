@@ -4,7 +4,7 @@ use libc::{
 use pnet::packet::ip::IpNextHeaderProtocols;
 use pnet::packet::ipv4::{checksum, Ipv4Packet, MutableIpv4Packet};
 use pnet::packet::tcp::{ipv4_checksum, MutableTcpPacket, TcpFlags, TcpOption, TcpPacket};
-use pnet::packet::Packet;
+use pnet::packet::{Packet, PacketSize};
 use rand::{thread_rng, Rng};
 use std::{
     io,
