@@ -383,7 +383,7 @@ union IfrIfru {
 }
 
 #[repr(C)]
-pub struct ifreq {
+pub struct Ifreq {
     ifr_name: [c_uchar; IFNAMSIZ],
     ifr_ifru: IfrIfru,
 }
@@ -397,7 +397,7 @@ impl TunSocket {
             fd => fd,
         };
 
-        let mut ifr = ifreq {
+        let mut ifr = Ifreq {
             ifr_name: [0; IFNAMSIZ],
             ifr_ifru: IfrIfru {
                 ifru_flags: (IFF_TUN | IFF_NO_PI) as _,
