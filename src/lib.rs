@@ -72,11 +72,8 @@ impl<T> TcpStream<T> {
         self.tun.write(&buf)
     }
 
-    // Read from tun device and pass TcpPacket to caller if its a TCP packet.
-    // Function expects that there's a packet to be received over the network.
-    // Caller is responsible for ensuring this.
-    // Should the checking of IP and TCP checksum happen here? What happens if the checksums don't match?
-    // Should the checking of sequence happen here?
+    // Read from tun device and pass TcpPacket to caller if it's a TCP packet.
+    // Function blocks if there's no packet to be received over the network.
     fn receive_tcp_packet(&self) -> TcpPacket {
         loop {
             let mut buf = [0; MTU];
