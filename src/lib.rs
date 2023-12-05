@@ -74,7 +74,7 @@ impl<T> TcpStream<T> {
 
     // Read from tun device and pass TcpPacket to caller if it's a TCP packet.
     // Function blocks if there's no packet to be received over the network.
-    fn receive_tcp_packet(&self) -> TcpPacket {
+    fn read_tcp_packet(&self) -> TcpPacket {
         loop {
             let mut buf = [0; MTU];
             let packet = self.tun.read(&mut buf).unwrap();
@@ -151,14 +151,14 @@ impl TcpStream<Closed> {
             window: 65535,
         };
 
-        let mut tcp_response = self.receive_tcp_packet();
+        let mut tcp_response = self.read_tcp_packet();
         loop {
             if tcp_response.get_flags() == TcpFlags::SYN | TcpFlags::ACK
                 && tcp_response.get_acknowledgement() == send.next.0
             {
                 break;
             }
-            tcp_response = self.receive_tcp_packet();
+            tcp_response = self.read_tcp_packet();
         }
 
         let receive = ReceiveSequence {
@@ -221,7 +221,7 @@ impl TcpStream<Established> {
         // We're in the LAST-ACK state here, expecting an ACK from the remote
         // server.
         // TODO: Check that the received packet is an ACK packet to above.
-        let tcp_response = self.receive_tcp_packet();
+        let tcp_response = self.read_tcp_packet();
 
         println!(
             "TcpStream<Established>: close: TCP RESPONSE 1: {:?}",
@@ -269,7 +269,7 @@ impl io::Read for TcpStream<Established> {
             // otherwise skip, and can assume no more data to pass in after a
             // certain time and return. We shouldn't close the connection here
             // though, will probably need to use Drop for that?
-            let tcp_response = self.receive_tcp_packet();
+            let tcp_response = self.read_tcp_packet();
 
             if tcp_response.get_sequence() != self.state.receive.next.0 {
                 continue;
@@ -360,7 +360,7 @@ impl io::Write for TcpStream<Established> {
                 self.send_tcp_packet(tcp_header.to_immutable());
 
                 // Wait for host to ACK sent data.
-                let tcp_response = self.receive_tcp_packet();
+                let tcp_response = self.read_tcp_packet();
                 if tcp_response.get_flags() == TcpFlags::ACK
                     && tcp_response.get_acknowledgement() == self.state.send.next.0
                 {
