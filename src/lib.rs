@@ -18,6 +18,7 @@ const IPV4_HEADER_LEN: usize = 20;
 const IPV4_SOURCE: Ipv4Addr = Ipv4Addr::new(192, 0, 2, 2);
 const MTU: usize = 1500;
 const TCP_HEADER_LEN: usize = 20;
+const TCP_MSS_OPTION_LEN: usize = 4;
 
 #[derive(Debug)]
 struct ReceiveSequence {
@@ -52,30 +53,6 @@ impl<T> TcpStream<T> {
         Ok(self.socket_addr_v4)
     }
 
-    // TODO: Perhaps a better approach would be to have a write packet function
-    // that takes in a MutableTcpPacket and then adds in stuff like checksum
-    // (and maybe sequence numbers?) and ipv4 packet wrapping and then write to
-    // the TUN device. This should still allow the caller to set the tcp
-    // payload, tcp flags, and any other stuff that it wants, but only for the
-    // tcp packet.
-    // We assume that the `packet` slice here is the entire ipv4 packet, i.e.
-    // `packet.len()` is the ipv4 packet's total length.
-    fn prepare_ipv4_packet(&self, packet: &mut [u8]) -> () {
-        // TODO: Check buf size here
-        let packet_length = packet.len();
-        let mut ip_header = MutableIpv4Packet::new(&mut packet[..]).unwrap();
-        ip_header.set_next_level_protocol(IpNextHeaderProtocols::Tcp);
-        ip_header.set_source(IPV4_SOURCE);
-        ip_header.set_destination(*self.socket_addr_v4.ip());
-        ip_header.set_identification(1);
-        ip_header.set_header_length(5);
-        ip_header.set_version(4);
-        ip_header.set_ttl(64);
-
-        ip_header.set_total_length(packet_length as u16);
-        ip_header.set_checksum(checksum(&ip_header.to_immutable()));
-    }
-
     fn send_tcp_packet(&self, tcp_packet: TcpPacket) -> io::Result<usize> {
         let mut buf = [0u8; MTU];
         let mut ip_packet = MutableIpv4Packet::new(&mut buf).unwrap();
@@ -87,7 +64,7 @@ impl<T> TcpStream<T> {
         ip_packet.set_header_length(5);
         ip_packet.set_version(4);
         ip_packet.set_ttl(64);
-        ip_packet.set_total_length((ip_packet.packet_size() + tcp_packet.packet_size()) as u16);
+        ip_packet.set_total_length((ip_packet.packet_size() + tcp_packet.packet().len()) as u16); // Use tcp packet length because `packet_size` doesn't include size of payload.
         ip_packet.set_payload(tcp_packet.packet());
 
         ip_packet.set_checksum(checksum(&ip_packet.to_immutable()));
@@ -144,11 +121,7 @@ impl TcpStream<Closed> {
     }
 
     fn open_tcp_connection(&self) -> Result<TcpStream<Established>, &'static str> {
-        const IPV4_HEADER_LEN: usize = 20;
-        const TCP_HEADER_LEN: usize = 20;
-        const TCP_MSS_OPTION_LEN: usize = 4;
-
-        let mut packet = [0u8; IPV4_HEADER_LEN + TCP_HEADER_LEN + TCP_MSS_OPTION_LEN];
+        let mut packet = [0u8; TCP_HEADER_LEN + TCP_MSS_OPTION_LEN];
 
         let ipv4_destination = self.socket_addr_v4.ip();
         let tcp_destination = self.socket_addr_v4.port();
@@ -156,12 +129,10 @@ impl TcpStream<Closed> {
         let initial_seq = Wrapping(rng.gen());
         let tcp_source = rng.gen_range(49152..=65535);
 
-        // TODO: Use builder pattern to reduce duplication of set methods
-        let mut tcp_header = MutableTcpPacket::new(&mut packet[IPV4_HEADER_LEN..]).unwrap();
+        let mut tcp_header = MutableTcpPacket::new(&mut packet).unwrap();
         tcp_header.set_source(tcp_source);
         tcp_header.set_destination(tcp_destination);
         tcp_header.set_window(65535);
-
         tcp_header.set_sequence(initial_seq.0);
         tcp_header.set_acknowledgement(0);
         tcp_header.set_flags(TcpFlags::SYN);
@@ -173,9 +144,7 @@ impl TcpStream<Closed> {
             ipv4_destination,
         ));
 
-        self.prepare_ipv4_packet(&mut packet[..]);
-
-        self.tun.write(&packet).unwrap();
+        self.send_tcp_packet(tcp_header.to_immutable());
 
         // Technically we're in the SYN-SENT state here.
 
@@ -201,8 +170,8 @@ impl TcpStream<Closed> {
         };
 
         // Send ACK back to server.
-        let mut packet = [0u8; IPV4_HEADER_LEN + TCP_HEADER_LEN];
-        let mut tcp_header = MutableTcpPacket::new(&mut packet[IPV4_HEADER_LEN..]).unwrap();
+        let mut packet = [0u8; TCP_HEADER_LEN];
+        let mut tcp_header = MutableTcpPacket::new(&mut packet).unwrap();
         tcp_header.set_source(tcp_source);
         tcp_header.set_destination(tcp_destination);
         tcp_header.set_sequence(send.next.0);
@@ -211,15 +180,13 @@ impl TcpStream<Closed> {
         tcp_header.set_window(send.window);
         tcp_header.set_data_offset((TCP_HEADER_LEN / 4) as u8);
 
-        println!("ACK TCP ACK REPLY FROM US: {:?}", tcp_header);
+        tcp_header.set_checksum(ipv4_checksum(
+            &tcp_header.to_immutable(),
+            &IPV4_SOURCE,
+            &ipv4_destination,
+        ));
 
-        let checksum_val =
-            ipv4_checksum(&tcp_header.to_immutable(), &IPV4_SOURCE, &ipv4_destination);
-        tcp_header.set_checksum(checksum_val);
-
-        self.prepare_ipv4_packet(&mut packet[..]);
-
-        self.tun.write(&packet).unwrap();
+        self.send_tcp_packet(tcp_header.to_immutable());
 
         Ok(TcpStream {
             socket_addr_v4: self.socket_addr_v4,
@@ -268,31 +235,24 @@ impl TcpStream<Established> {
     }
 
     fn reset(&mut self) -> Result<(), &'static str> {
-        const IPV4_HEADER_LEN: usize = 20;
-        const TCP_HEADER_LEN: usize = 20;
+        let mut packet = [0u8; TCP_HEADER_LEN];
+        let mut tcp_header = MutableTcpPacket::new(&mut packet).unwrap();
 
-        let mut packet = [0u8; IPV4_HEADER_LEN + TCP_HEADER_LEN];
-
-        let ipv4_destination = self.socket_addr_v4.ip();
-        let tcp_destination = self.socket_addr_v4.port();
-
-        let mut tcp_header = MutableTcpPacket::new(&mut packet[IPV4_HEADER_LEN..]).unwrap();
         tcp_header.set_source(self.state.source);
-        tcp_header.set_destination(tcp_destination);
+        tcp_header.set_destination(self.socket_addr_v4.port());
         tcp_header.set_sequence(self.state.send.next.0);
         self.state.send.next = self.state.send.next + Wrapping(1u32);
         tcp_header.set_acknowledgement(self.state.receive.next.0);
         tcp_header.set_flags(TcpFlags::RST);
         tcp_header.set_window(self.state.send.window);
         tcp_header.set_data_offset((TCP_HEADER_LEN / 4) as u8);
+        tcp_header.set_checksum(ipv4_checksum(
+            &tcp_header.to_immutable(),
+            &IPV4_SOURCE,
+            self.socket_addr_v4.ip(),
+        ));
 
-        let checksum_val =
-            ipv4_checksum(&tcp_header.to_immutable(), &IPV4_SOURCE, ipv4_destination);
-        tcp_header.set_checksum(checksum_val);
-
-        self.prepare_ipv4_packet(&mut packet[..]);
-
-        println!("reset: TunSocket = {:?}", self.tun);
+        self.send_tcp_packet(tcp_header.to_immutable());
 
         self.tun.write(&packet).unwrap();
 
@@ -334,32 +294,25 @@ impl io::Read for TcpStream<Established> {
                 buf[tcp_data_read..tcp_data_read + tcp_data.len()].clone_from_slice(tcp_data);
                 tcp_data_read += tcp_data.len();
 
-                //  send ack packet
-                const IPV4_HEADER_LEN: usize = 20;
-                const TCP_HEADER_LEN: usize = 20;
+                // Send ACK packet.
+                let mut packet = [0u8; TCP_HEADER_LEN];
+                let mut tcp_header = MutableTcpPacket::new(&mut packet).unwrap();
 
-                let mut packet = [0u8; IPV4_HEADER_LEN + TCP_HEADER_LEN];
-
-                let ipv4_destination = self.socket_addr_v4.ip();
-                let tcp_destination = self.socket_addr_v4.port();
-
-                let mut tcp_header = MutableTcpPacket::new(&mut packet[IPV4_HEADER_LEN..]).unwrap();
                 tcp_header.set_source(self.state.source);
-                tcp_header.set_destination(tcp_destination);
+                tcp_header.set_destination(self.socket_addr_v4.port());
                 tcp_header.set_sequence(self.state.send.next.0);
                 self.state.receive.next += Wrapping(tcp_data.len() as u32);
                 tcp_header.set_acknowledgement(self.state.receive.next.0);
                 tcp_header.set_flags(TcpFlags::ACK);
                 tcp_header.set_window(self.state.send.window);
                 tcp_header.set_data_offset((TCP_HEADER_LEN / 4) as u8);
+                tcp_header.set_checksum(ipv4_checksum(
+                    &tcp_header.to_immutable(),
+                    &IPV4_SOURCE,
+                    self.socket_addr_v4.ip(),
+                ));
 
-                let checksum_val =
-                    ipv4_checksum(&tcp_header.to_immutable(), &IPV4_SOURCE, ipv4_destination);
-                tcp_header.set_checksum(checksum_val);
-
-                self.prepare_ipv4_packet(&mut packet[..]);
-
-                self.tun.write(&packet).unwrap();
+                self.send_tcp_packet(tcp_header.to_immutable());
             }
         }
 
@@ -374,10 +327,6 @@ impl io::Write for TcpStream<Established> {
     }
 
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        println!("TcpStream: write: start");
-
-        const IPV4_HEADER_LEN: usize = 20;
-        const TCP_HEADER_LEN: usize = 20;
         for segment in buf.chunks(MTU - TCP_HEADER_LEN - IPV4_HEADER_LEN) {
             loop {
                 println!("TcpStream: write: segment length = {}", segment.len());
@@ -386,32 +335,32 @@ impl io::Write for TcpStream<Established> {
                     std::str::from_utf8(segment).unwrap()
                 );
 
-                let mut packet = [0u8; MTU];
-                let packet_length = IPV4_HEADER_LEN + TCP_HEADER_LEN + segment.len();
-
-                let ipv4_destination = self.socket_addr_v4.ip();
-                let tcp_destination = self.socket_addr_v4.port();
-
+                let mut packet = [0u8; MTU - IPV4_HEADER_LEN];
                 let mut tcp_header =
-                    MutableTcpPacket::new(&mut packet[IPV4_HEADER_LEN..packet_length]).unwrap();
+                    MutableTcpPacket::new(&mut packet[..TCP_HEADER_LEN + segment.len()]).unwrap();
+
                 tcp_header.set_source(self.state.source);
-                tcp_header.set_destination(tcp_destination);
+                tcp_header.set_destination(self.socket_addr_v4.port());
                 tcp_header.set_sequence(self.state.send.next.0);
                 self.state.send.next = self.state.send.next + Wrapping(segment.len() as u32);
                 tcp_header.set_acknowledgement(self.state.receive.next.0);
                 tcp_header.set_flags(TcpFlags::PSH | TcpFlags::ACK);
                 tcp_header.set_window(self.state.send.window);
                 tcp_header.set_data_offset((TCP_HEADER_LEN / 4) as u8);
-
                 tcp_header.set_payload(segment);
+                tcp_header.set_checksum(ipv4_checksum(
+                    &tcp_header.to_immutable(),
+                    &IPV4_SOURCE,
+                    self.socket_addr_v4.ip(),
+                ));
 
-                let checksum_val =
-                    ipv4_checksum(&tcp_header.to_immutable(), &IPV4_SOURCE, ipv4_destination);
-                tcp_header.set_checksum(checksum_val);
+                println!(
+                    "write; tcp_header size = {}, {}",
+                    tcp_header.payload().len(),
+                    tcp_header.packet().len()
+                );
 
-                self.prepare_ipv4_packet(&mut packet[..packet_length]);
-
-                self.tun.write(&packet[..packet_length]).unwrap();
+                self.send_tcp_packet(tcp_header.to_immutable());
 
                 // Wait for host to ACK sent data.
                 let tcp_response = self.receive_tcp_packet();
