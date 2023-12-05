@@ -220,13 +220,14 @@ impl TcpStream<Established> {
 
         // We're in the LAST-ACK state here, expecting an ACK from the remote
         // server.
-        // TODO: Check that the received packet is an ACK packet to above.
-        let tcp_response = self.read_tcp_packet();
-
-        println!(
-            "TcpStream<Established>: close: TCP RESPONSE 1: {:?}",
-            tcp_response
-        );
+        loop {
+            let tcp_response = self.read_tcp_packet();
+            if tcp_response.get_flags() == TcpFlags::ACK
+                && tcp_response.get_acknowledgement() == self.state.send.next.0
+            {
+                break;
+            }
+        }
 
         Ok(())
     }
