@@ -118,6 +118,7 @@ impl TcpStream<Closed> {
     }
 
     fn open_tcp_connection(&self) -> Result<TcpStream<Established>, &'static str> {
+        // Create and send a SYN packet.
         let mut packet = [0u8; TCP_HEADER_LEN + TCP_MSS_OPTION_LEN];
 
         let ipv4_destination = self.socket_addr_v4.ip();
@@ -260,8 +261,6 @@ impl TcpStream<Established> {
 
 impl io::Read for TcpStream<Established> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        println!("TcpStream: read: start");
-
         // TODO: check and break once tcp_data_read >= buf.len()
         let mut tcp_data_read = 0;
 
@@ -320,19 +319,12 @@ impl io::Read for TcpStream<Established> {
 
 impl io::Write for TcpStream<Established> {
     fn flush(&mut self) -> io::Result<()> {
-        println!("TcpStream: flush: start");
         Ok(())
     }
 
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         for segment in buf.chunks(MTU - TCP_HEADER_LEN - IPV4_HEADER_LEN) {
             loop {
-                println!("TcpStream: write: segment length = {}", segment.len());
-                println!(
-                    "TcpStream: write: segment contents = {}",
-                    std::str::from_utf8(segment).unwrap()
-                );
-
                 let mut packet = [0u8; MTU - IPV4_HEADER_LEN];
                 let mut tcp_header =
                     MutableTcpPacket::new(&mut packet[..TCP_HEADER_LEN + segment.len()]).unwrap();
@@ -352,12 +344,6 @@ impl io::Write for TcpStream<Established> {
                     self.socket_addr_v4.ip(),
                 ));
 
-                println!(
-                    "write; tcp_header size = {}, {}",
-                    tcp_header.payload().len(),
-                    tcp_header.packet().len()
-                );
-
                 self.send_tcp_packet(tcp_header.to_immutable());
 
                 // Wait for host to ACK sent data.
@@ -365,10 +351,6 @@ impl io::Write for TcpStream<Established> {
                 if tcp_response.get_flags() == TcpFlags::ACK
                     && tcp_response.get_acknowledgement() == self.state.send.next.0
                 {
-                    println!(
-                        "io::Write: write: ACK received! ack = {}",
-                        tcp_response.get_acknowledgement()
-                    );
                     break;
                 }
             }
